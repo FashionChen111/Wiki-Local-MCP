@@ -53,10 +53,13 @@ def test_approval_uploads_snapshot_and_publishes_attachment_references_once(acti
     assert upload[0] == ("77" if action == "create" else "42") and upload[2] == snapshot
     [published] = fake_client.updated
     assert f'ri:filename="{upload[1]}"' in published["body"]["storage"]["value"]
+    assert published["body"] == queue.get_op(op_id)["payload"]["body"]
     assert published["version"]["number"] == (2 if action == "create" else 4)
     assert "uploaded_attachments" not in published
     if action == "create":
-        assert "ri:attachment" not in fake_client.created[0]["body"]["storage"]["value"]
+        assert fake_client.created[0]["body"]["storage"]["value"] == (
+            f"<p>页面尚未发布。请在 Wiki MCP 审批记录中核对操作 ID {op_id}。</p>"
+        )
         assert out["result"]["id"] == "77"
     if action == "section":
         assert published["body"]["storage"]["value"].endswith("<h2>Keep</h2><p>unchanged</p>")
@@ -95,6 +98,7 @@ def test_failed_upload_keeps_created_page_id_and_stops_before_publishing(fake_cl
     assert out["status"] == "failed" and out["result"]["id"] == "77"
     assert out["result"]["page_created"] and out["result"]["uploaded_attachments"] == []
     assert queue.get_op(op_id)["result"] == out["result"]
+    assert f"核对操作 ID {op_id}" in fake_client.created[0]["body"]["storage"]["value"]
     assert fake_client.updated == []
     assert '"result": "partial"' in writes.AUDIT_PATH.read_text(encoding="utf-8")
 

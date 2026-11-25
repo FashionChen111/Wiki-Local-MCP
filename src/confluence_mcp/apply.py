@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from time import sleep
 from typing import Any
 
@@ -9,6 +10,10 @@ from . import queue, settings_file
 from .client import ConfluenceAPIError, ConfluenceConfigurationError, ConfluenceConnectionError
 from .images import ImageAttachment
 from .writes import audit_write, ensure_write_allowed
+
+
+def attachment_placeholder(operation_id: str) -> str:
+    return f"<p>页面尚未发布。请在 Wiki MCP 审批记录中核对操作 ID {escape(operation_id)}。</p>"
 
 
 def _attachment_upload_retries() -> int:
@@ -63,7 +68,9 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
                 # A page id is required before its attachments can be uploaded.
                 response = client.create_content({
                     **payload,
-                    "body": {"storage": {"representation": "storage", "value": "<p>Image upload in progress.</p>"}},
+                    "body": {"storage": {
+                        "representation": "storage", "value": attachment_placeholder(op["id"]),
+                    }},
                 })
             else:
                 response = client.get_page(op["page_id"])
