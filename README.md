@@ -239,10 +239,10 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 `executing`（正在执行）、`succeeded`（已成功）、`failed`（已确认失败，例如版本冲突 409），
 `indeterminate`（结果未知，例如发送后未收到响应）。
 
-`indeterminate` 和卡在 `executing` 的操作永远不会自动重试：先到 Confluence
-确认页面是否已被修改，再决定手动处理。批量写入遇到 `indeterminate` 会立即停止，
-其余未处理的操作保持 `pending`。通过 `confluence-mcp-review web` 启动时，超过 5 分钟仍是 `executing` 的操作会被改成
-`indeterminate`（说明写入过程中进程中断过）。更新请求携带入队时绑定的
+`indeterminate` 和卡在 `executing` 的操作始终需要人工核对 Confluence 的实际结果。
+批量写入遇到 `indeterminate` 会立即停止，其余未处理的操作保持 `pending`。
+启动 `confluence-mcp-review web` 或执行 `approve` 时，超过 5 分钟没有更新的 `executing`
+会被标记为 `indeterminate`，原进程可能仍在等待响应。更新请求携带入队时绑定的
 `version.number = 当前版本 + 1`；如果页面在审批期间被他人修改，Confluence 返回
 409，该操作变为 `failed`，不会覆盖新版本。
 
@@ -251,7 +251,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 在交互式终端运行 `confluence-mcp-review resume <id>`，其中 `<id>` 为原操作 ID。命令先读取原页面、版本和同名附件，展示已有与缺失附件。输入 `yes` 后会再次核对，再用原快照继续写入，同一操作 ID 会记录新的结果。
 
 - 适用于已取得页面 ID 和版本的含图新建、整页更新和章节更新。页面已改动时会报告冲突。由执行回收标记为中断的记录需先核对实际结果。
-- 恢复会复用已存在的同名附件。若原目标版本、标题、正文和附件都已确认存在，只记录本地成功。再次发生结果不明时，按操作 ID 查看最新进度。
+- 恢复会复用已存在的同名附件。若原目标版本、标题、正文和附件都已确认存在，只记录本地成功。恢复时遇到发送前连接失败会保留待核对状态，可以在网络恢复后按原操作 ID 再次人工恢复。
 
 成功执行的写入会追加到 `%USERPROFILE%\.confluence-mcp\audit.log`
 （macOS / Linux 为 `~/.confluence-mcp/audit.log`；JSON Lines，不含页面正文和 PAT）。

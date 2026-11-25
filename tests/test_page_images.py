@@ -306,6 +306,41 @@ def test_resume_conflict_after_confirmation_does_not_write(fake_client, image_fi
     assert fake_client.created == fake_client.uploaded == fake_client.updated == []
 
 
+@pytest.mark.parametrize("changed_during", ["lookup", "retry", "upload"])
+def test_resume_rechecks_page_before_the_next_write(
+    fake_client, image_file, config_values, monkeypatch, changed_during,
+):
+    op, _, missing = _resume_candidate(fake_client, image_file)
+    apply.inspect_resume(fake_client, op)
+    find_attachment = fake_client.get_attachment
+    upload = fake_client.upload_attachment
+    posts = []
+    config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = "1"
+    monkeypatch.setattr(apply, "sleep", lambda delay: None)
+
+    def lookup(page_id, filename):
+        if changed_during == "lookup" and filename == missing.filename:
+            fake_client.pages["77"]["space"]["key"] = "QA"
+        return find_attachment(page_id, filename)
+
+    def put_attachment(*args):
+        posts.append(args[1])
+        if changed_during == "retry" and len(posts) == 1:
+            fake_client.pages["77"]["space"]["key"] = "QA"
+            raise ConfluenceConnectionError("Could not start a connection")
+        item = upload(*args)
+        if changed_during == "upload":
+            fake_client.pages["77"]["space"]["key"] = "QA"
+        return item
+
+    fake_client.get_attachment = lookup
+    fake_client.upload_attachment = put_attachment
+    outcome = _resume_claimed(fake_client, op)
+    assert outcome["status"] == "failed" and fake_client.updated == []
+    assert posts == ([] if changed_during == "lookup" else [missing.filename])
+    assert len(fake_client.uploaded) == int(changed_during == "upload")
+
+
 def test_resume_detects_body_already_published(fake_client, image_file):
     op, _, _ = _resume_candidate(fake_client, image_file, all_present=True)
     fake_client.pages["77"].update({"body": op["payload"]["body"], "version": {"number": 2}})
@@ -313,6 +348,49 @@ def test_resume_detects_body_already_published(fake_client, image_file):
     result = _resume_claimed(fake_client, op)
     assert (result["status"], result["result"]["version"]) == ("succeeded", 2)
     assert fake_client.created == fake_client.uploaded == fake_client.updated == []
+
+
+def test_ambiguous_final_attachment_put_can_be_verified_with_resume(fake_client, image_file):
+    op_id = _page_image("create", image_file)["operation_id"]
+    next_id = server.create_page("OPS", "Next", "body", dry_run=False)["operation_id"]
+
+    def publish_and_lose_response(page_id, payload):
+        fake_client.updated.append(payload)
+        fake_client.pages[page_id] = {
+            **payload, "status": "current", "space": {"key": "OPS"},
+        }
+        raise ConfluenceAPIError("Gateway could not confirm the result", status_code=502)
+
+    fake_client.update_page = publish_and_lose_response
+    batch = apply.approve_and_apply(fake_client, [op_id, next_id])
+    assert batch["executed"][0]["status"] == "indeterminate" and batch["skipped"] == [next_id]
+    assert queue.get_op(next_id)["status"] == "pending"
+    op = queue.get_op(op_id)
+    assert apply.inspect_resume(fake_client, op).already_applied
+    verified = _resume_claimed(fake_client, op)
+    assert verified["status"] == "succeeded" and verified["result"]["version"] == 2
+    assert len(fake_client.created) == len(fake_client.uploaded) == len(fake_client.updated) == 1
+
+
+def test_resume_can_continue_after_another_pre_send_failure(fake_client, image_file):
+    op, _, missing = _resume_candidate(fake_client, image_file)
+    upload = fake_client.upload_attachment
+
+    def connection_failed(*args):
+        raise ConfluenceConnectionError("Could not start a connection")
+
+    fake_client.upload_attachment = connection_failed
+    outcome = _resume_claimed(fake_client, op)
+    assert outcome["status"] == "indeterminate"
+    assert outcome["result"]["uploading_attachment"] == missing.filename
+    assert outcome["result"]["error_before_resume"] == op["error"]
+    assert fake_client.uploaded == fake_client.updated == []
+
+    fake_client.upload_attachment = upload
+    next_attempt = _resume_claimed(fake_client, queue.get_op(op["id"]))
+    assert next_attempt["status"] == "succeeded" and next_attempt["operation_id"] == op["id"]
+    assert next_attempt["result"]["resume_attempts"] == 2
+    assert len(fake_client.uploaded) == len(fake_client.updated) == 1
 
 
 @pytest.mark.parametrize("blocked", ["missing-page", "interrupted"])

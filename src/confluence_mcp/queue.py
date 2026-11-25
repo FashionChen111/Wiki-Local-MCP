@@ -278,7 +278,7 @@ def recover_stale_executing(
 ) -> list[str]:
     """Mark executing rows older than max_age_seconds indeterminate; return their ids.
 
-    A row stuck in executing means a process died mid-write, so the outcome is unknown.
+    The original request may still be running when its operation is marked stale.
     """
     cutoff = ((now or datetime.now(timezone.utc)) - timedelta(seconds=max_age_seconds)).isoformat()
     with closing(_connect()) as conn:

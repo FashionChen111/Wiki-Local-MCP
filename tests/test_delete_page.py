@@ -67,6 +67,20 @@ def test_delete_page_rejects_incomplete_location(fake_client):
     assert queue.list_ops() == [] and fake_client.trashed == []
 
 
+def test_delete_page_read_timeout_before_sending_is_a_known_failure(fake_client):
+    op_id = server.delete_page("42", dry_run=False)["operation_id"]
+    next_id = server.create_page("OPS", "Next guide", "body", dry_run=False)["operation_id"]
+    fake_client.create_response = {"id": "77", "version": {"number": 1}}
+
+    def target_timeout(page_id):
+        raise ConfluenceAPIError("The client timed out waiting for the Confluence response.")
+
+    fake_client.get_page = target_timeout
+    batch = apply.approve_and_apply(fake_client, [op_id, next_id])
+    assert [item["status"] for item in batch["executed"]] == ["failed", "succeeded"]
+    assert batch["skipped"] == [] and fake_client.trashed == []
+
+
 @pytest.mark.parametrize("code", [None, 403, 502])
 def test_delete_page_records_unknown_outcomes_without_retrying(fake_client, code):
     op_id = server.delete_page("42", dry_run=False)["operation_id"]
