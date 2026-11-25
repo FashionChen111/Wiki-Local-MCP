@@ -84,3 +84,10 @@ def test_invalid_timeout_setting_is_rejected(config_values, key, value):
     config_values.update(ATLASSIAN_CONFLUENCE_PAT="example-token", **{key: value})
     with pytest.raises(ConfluenceConfigurationError, match=key):
         ConfluenceSettings.from_environment()
+
+
+@pytest.mark.parametrize("value", ["-1", "2.5"])
+def test_invalid_connect_retry_setting_is_rejected(config_values, value):
+    config_values.update(ATLASSIAN_CONFLUENCE_PAT="example-token", CONFLUENCE_CONNECT_RETRIES=value)
+    with pytest.raises(ConfluenceConfigurationError, match="CONFLUENCE_CONNECT_RETRIES"):
+        ConfluenceSettings.from_environment()

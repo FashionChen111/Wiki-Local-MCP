@@ -196,6 +196,7 @@ MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`
 | `CONFLUENCE_ENABLE_WRITES` | 否 | 设置为 `true` 后注册写工具；默认关闭。 |
 | `CONFLUENCE_WRITE_SPACES` | 否 | 可写 Space Key，多个用逗号分隔；留空不限制空间。 |
 | `CONFLUENCE_REQUEST_TIMEOUT_SECONDS` | 否 | 普通请求的读写超时，以及所有请求的连接池等待超时。默认 30 秒，建立连接的超时为 10 秒。 |
+| `CONFLUENCE_CONNECT_RETRIES` | 否 | GET 请求建立连接失败或超时后的额外尝试次数。每次使用新的临时客户端，默认 2，设为 0 关闭。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS` | 否 | 上传附件等待响应数据的单次超时秒数，默认 `120`。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS` | 否 | 上传附件等待请求数据发送的单次超时秒数，默认 `120`。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES` | 否 | 每个附件上传请求可额外尝试的次数，填写非负整数，默认 `0`。 |
@@ -337,7 +338,7 @@ Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GE
 
 `section` 只支持 `markdown` / `storage` 输出；`html` 是整个 `body.view`，无法按章节切分。
 
-`html` 返回 Confluence 的 `body.view` 渲染片段；如果服务器未提供该扩展，则回退到 `body.storage`。`markdown` 从 storage XHTML 转换；Confluence 专有宏、图表和应用宏可能无法完全映射为 Markdown，需以 HTML 或原页面查看其渲染结果。
+`html` 返回 Confluence 的 `body.view` 渲染片段，缺少该扩展时回退到 `body.storage`。`markdown` 从 storage XHTML 转换，把 `code` 宏还原成带语言的围栏代码块。其他 Confluence 专有宏、图表和应用宏的渲染效果可在 HTML 或原页面查看。
 
 ## Markdown 图片
 

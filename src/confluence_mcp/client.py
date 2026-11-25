@@ -16,6 +16,7 @@ from . import settings_file
 
 # Tool positions -> the values the Confluence move dialog posts to movepage.action.
 MOVE_POSITIONS = {"before": "above", "after": "below", "append": "append"}
+_DEFAULT_CONNECT_RETRIES = 2
 
 
 class ConfluenceConfigurationError(RuntimeError):
@@ -44,6 +45,27 @@ def _timeout_seconds(settings: dict[str, str], key: str, default: float) -> floa
     raise ConfluenceConfigurationError(f"{key} in .env must be a positive, finite number of seconds.")
 
 
+def _connect_retry_count(settings: dict[str, str]) -> int:
+    key = settings_file.CONNECT_RETRIES
+    raw = settings.get(key, "").strip()
+    try:
+        retries = int(raw) if raw else _DEFAULT_CONNECT_RETRIES
+        if retries >= 0:
+            return retries
+    except ValueError:
+        pass
+    raise ConfluenceConfigurationError(f"{key} in .env must be a non-negative integer.")
+
+
+def _is_connection_reset(exc: httpx.ConnectError) -> bool:
+    cause: BaseException | None = exc
+    while cause is not None:
+        if isinstance(cause, ConnectionResetError) or "connection reset by peer" in str(cause).casefold():
+            return True
+        cause = cause.__cause__
+    return False
+
+
 @dataclass(frozen=True)
 class ConfluenceSettings:
     base_url: str
@@ -52,6 +74,7 @@ class ConfluenceSettings:
     request_timeout_seconds: float = 30.0
     attachment_upload_read_timeout_seconds: float = 120.0
     attachment_upload_write_timeout_seconds: float = 120.0
+    connect_retries: int = _DEFAULT_CONNECT_RETRIES
 
     @classmethod
     def from_environment(cls) -> "ConfluenceSettings":
@@ -90,6 +113,7 @@ class ConfluenceSettings:
             attachment_upload_write_timeout_seconds=_timeout_seconds(
                 settings, settings_file.ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS, 120.0,
             ),
+            connect_retries=_connect_retry_count(settings),
         )
 
 
@@ -97,20 +121,23 @@ class ConfluenceClient:
     """A wrapper around Confluence REST API v1."""
 
     def __init__(self, settings: ConfluenceSettings) -> None:
-        headers = {"Accept": "application/json", "Authorization": f"Bearer {settings.pat}"}
-        timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
-
-        self._client = httpx.Client(
-            base_url=f"{settings.base_url}/rest/api/",
-            headers=headers,
-            verify=settings.ca_bundle or True,
-            timeout=timeout,
-            follow_redirects=False,
-        )
+        self._settings = settings
         self._base_url = settings.base_url
+        self._request_timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
+        self._client = self._new_http_client()
         self._attachment_upload_timeout = httpx.Timeout(
-            connect=timeout.connect, read=settings.attachment_upload_read_timeout_seconds,
-            write=settings.attachment_upload_write_timeout_seconds, pool=timeout.pool,
+            connect=self._request_timeout.connect, read=settings.attachment_upload_read_timeout_seconds,
+            write=settings.attachment_upload_write_timeout_seconds, pool=self._request_timeout.pool,
+        )
+
+    def _new_http_client(self) -> httpx.Client:
+        settings = self._settings
+        return httpx.Client(
+            base_url=f"{self._base_url}/rest/api/",
+            headers={"Accept": "application/json", "Authorization": f"Bearer {settings.pat}"},
+            verify=settings.ca_bundle or True,
+            timeout=self._request_timeout,
+            follow_redirects=False,
         )
 
     def close(self) -> None:
@@ -289,6 +316,21 @@ class ConfluenceClient:
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("GET", path, params=params)
 
+    def _get_with_retries(self, path: str, params: dict[str, Any] | None) -> httpx.Response:
+        try:
+            return self._client.request("GET", path, params=params)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            retries = self._settings.connect_retries
+            for attempt in range(retries):
+                try:
+                    # The retry uses its own connection pool, so it can close independently.
+                    with self._new_http_client() as retry_client:
+                        return retry_client.request("GET", path, params=params)
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    if attempt + 1 == retries:
+                        raise
+            raise
+
     def _request(
         self,
         method: str,
@@ -301,10 +343,13 @@ class ConfluenceClient:
         timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
         try:
-            response = self._client.request(
-                method, path, params=params, json=json_body, files=files, headers=headers,
-                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
-            )
+            if method == "GET":
+                response = self._get_with_retries(path, params)
+            else:
+                response = self._client.request(
+                    method, path, params=params, json=json_body, files=files, headers=headers,
+                    timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+                )
         except httpx.ConnectTimeout as exc:
             raise ConfluenceConnectionError("The client timed out connecting to Confluence before sending the request.") from exc
         except httpx.PoolTimeout as exc:
@@ -318,6 +363,11 @@ class ConfluenceClient:
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
+            if _is_connection_reset(exc):
+                raise ConfluenceConnectionError(
+                    "Could not connect to Confluence because the connection was reset. "
+                    "Check whether your VPN or zero-trust client is connected."
+                ) from exc
             raise ConfluenceConnectionError(
                 "Could not connect to Confluence. Check the URL, network/VPN, and TLS CA settings."
             ) from exc
