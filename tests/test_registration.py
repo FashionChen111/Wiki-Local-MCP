@@ -26,6 +26,7 @@ def test_write_tools_are_hidden_by_default(monkeypatch, config_values):
 
     assert "create_page" not in names
     assert "add_comment" not in names
+    assert "delete_page" not in names
     assert "list_queued_operations" not in names
     assert {"search_pages", "get_page", "cql_search"} <= names
 
@@ -39,12 +40,14 @@ def test_write_tools_appear_when_enabled(monkeypatch, config_values):
         "update_page",
         "update_page_section",
         "move_page",
+        "delete_page",
         "list_queued_operations",
         "get_queued_operations",
         "cancel_queued_operations",
         "get_execution_log",
     } <= names
     assert "apply_approved_operations" not in names
+    assert "approve" not in names and "resume_operation" not in names
 
 
 def test_markdown_page_tools_expose_image_directory_and_queue_through_mcp(fake_client, image_file, config_values):

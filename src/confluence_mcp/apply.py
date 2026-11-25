@@ -10,7 +10,7 @@ from typing import Any
 from . import queue, settings_file
 from .client import ConfluenceAPIError, ConfluenceConfigurationError, ConfluenceConnectionError
 from .images import ImageAttachment
-from .writes import audit_write, ensure_write_allowed
+from .writes import audit_write, ensure_write_allowed, read_trash_target
 
 
 @dataclass(frozen=True)
@@ -221,7 +221,16 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     try:
         ensure_write_allowed(op["space_key"])
         attachments = queue.get_attachments(op["id"])
-        if op["action"] == "move_page":
+        if op["action"] == "delete_page":
+            target = read_trash_target(client, op["page_id"])
+            if (
+                target.space_key != op["space_key"] or target.version != op["version_before"]
+                or target.parent_page_id != op["payload"]["parent_page_id"]
+            ):
+                raise ConfluenceAPIError("The page version or location changed before deletion.", status_code=409)
+            client.trash_page(op["page_id"])
+            result = {"id": op["page_id"], "version": None, "url": None, "trashed": True}
+        elif op["action"] == "move_page":
             payload = op["payload"]
             # movepage.action answers with the moved page, not a version, so record the page id only.
             client.move_page(op["page_id"], payload["position"], payload["target_id"])
@@ -282,6 +291,8 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
             failed = _confirmed_write_failure(exc)
             if failed:
                 _record_failed_attachment(result)
+        elif op["action"] == "delete_page":
+            failed = _confirmed_write_failure(exc)
         status = "failed" if failed else "indeterminate"
         error = str(exc)
     except Exception as exc:
@@ -296,7 +307,8 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
             version_before=op["version_before"],
             version_after=result["version"],
             result=(
-                "moved" if op["action"] == "move_page"
+                "trashed" if op["action"] == "delete_page"
+                else "moved" if op["action"] == "move_page"
                 else "updated" if op["kind"] == "update" else "created"
             ),
         )

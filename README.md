@@ -292,12 +292,13 @@ ALLOW_AGENT_OPEN_REVIEW_UI=true
 - `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
 - `create_page` / `update_page` / `update_page_section` 的 Markdown 图片会自动读取或下载，并在审批后上传为页面附件；相对路径需要 `image_base_dir`。详见下方“Markdown 图片”。
 - `move_page`（需开启写操作）：调整页面在页面树中的位置，不修改正文。`position="before"` / `"after"` 把页面放到同级页面 `target_page_id` 的前/后（会随之改到该页面的父页面下）；`position="append"` 把页面移到 `target_page_id` 下作为最后一个子页面。只支持同一空间内移动，不支持移到空间根目录。`dry_run=true` 返回移动前后的同级顺序；`dry_run=false` 入队等待人工审批，批准后向站点的 `/pages/movepage.action` 发送 POST 请求。要排好多个页面，按顺序入队多条移动，批准时按队列顺序执行。
+- `delete_page(page_id, dry_run=true)`（需开启写操作）：预览单页删除。`dry_run=false` 只入队。批准后再次核对页面状态、空间、版本和父页，随后将该页移入空间回收站并记录审计。若存在子页面，Confluence 可能将它们移到上级页面。 [Atlassian 单页删除说明](https://confluence.atlassian.com/conf85/delete-or-restore-a-page-1283359707.html)
 - `list_queued_operations` / `get_queued_operations` / `cancel_queued_operations` / `get_execution_log`（需开启写操作）：查看自己入队的操作和 diff 预览、撤回尚未审批（`pending`）的操作、读取已结束操作的结果。MCP 无法批准或执行任何操作，也无法撤回已批准的操作。
 - 页面内容可返回 Markdown、Confluence 渲染 HTML 或原始 storage XHTML。
 
 页面 ID 可从页面链接中的 `pageId` 参数，或从 `.../pages/<数字>/...` 路径中取得。也可以先用 `search_pages` 或 `get_page_by_title` 查找页面。
 
-Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GET /rest/api/content/{id}?expand=body.storage,body.view,version,space,ancestors` 完成；搜索通过 `GET /rest/api/content/search` 完成。默认只发起 `GET` 请求；开启写操作后才会发起 `POST` / `PUT`。
+Confluence 8.5.15 使用 Server/Data Center REST API v1。页面读取通过 `GET /rest/api/content/{id}?expand=body.storage,body.view,version,space,ancestors` 完成，搜索使用 `GET /rest/api/content/search`。获批的写入会通过 `POST`、`PUT` 或 `DELETE` 执行。单页删除先做版本与位置预检，Confluence 的删除接口没有原子版本参数。
 
 ## 常用调用
 

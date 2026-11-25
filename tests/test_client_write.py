@@ -34,6 +34,26 @@ def test_update_conflict_maps_409_to_readable_error():
     assert excinfo.value.status_code == 409
 
 
+@pytest.mark.parametrize("status", [200, 204, 403, 202])
+def test_trash_page_accepts_only_confirmed_delete_responses(status):
+    def handle(request):
+        assert request.method == "DELETE" and request.url.path == "/confluence/rest/api/content/42"
+        assert not request.url.params
+        assert request.headers["authorization"] == "Bearer example-token"
+        return httpx.Response(status)
+
+    client = _transport_client(handle)
+    try:
+        if status in {200, 204}:
+            assert client.trash_page("42") is None
+        else:
+            with pytest.raises(ConfluenceAPIError) as excinfo:
+                client.trash_page("42")
+            assert excinfo.value.status_code == (403 if status == 403 else None)
+    finally:
+        client.close()
+
+
 def test_attachment_lookup_and_multipart_upload_use_existing_auth_and_context_path(image_file):
     requests = []
 

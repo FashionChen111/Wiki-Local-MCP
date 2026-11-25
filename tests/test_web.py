@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from confluence_mcp import queue, web, web_page, writes
-from confluence_mcp.server import get_queued_operations
+from confluence_mcp.server import delete_page, get_queued_operations
 
 TOKEN = "tok"
 
@@ -423,6 +423,25 @@ def test_move_location_is_the_moved_page_path(call, fake_client):
     )
     loc = json.loads(call("GET", f"/api/location?id={op}").body)
     assert loc["mode"] == "move" and _titles(loc) == ["Root", "Guide"]
+
+
+def test_delete_page_web_location_rejection_and_approval(call, fake_client):
+    fake_client.pages["42"] = {
+        **_page("42", "Test guide", [_page("7", "Runbooks")]),
+        "type": "page", "status": "current", "space": {"key": "OPS"}, "version": {"number": 3},
+    }
+    op_id = delete_page("42", dry_run=False)["operation_id"]
+    location = json.loads(call("GET", f"/api/location?id={op_id}").body)
+    assert location["mode"] == "delete" and _titles(location) == ["Runbooks", "Test guide"]
+    assert json.loads(call("POST", "/api/reject", {"ids": [op_id], "reason": "保留"}).body)["rejected"] == [op_id]
+    assert fake_client.trashed == []
+    assert get_queued_operations([op_id])["operations"][0]["result"]["rejection_reason"] == "保留"
+
+    other = delete_page("42", dry_run=False)["operation_id"]
+    approval = json.loads(call("POST", "/api/approve", {"ids": [other]}).body)
+    assert approval["executed"][0]["result"]["trashed"] is True and fake_client.trashed == ["42"]
+    location = json.loads(call("GET", f"/api/location?id={other}").body)
+    assert location["mode"] == "delete" and location["trash"] is True
 
 
 def test_state_exposes_only_derived_provenance_fields(call):

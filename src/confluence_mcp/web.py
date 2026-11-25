@@ -126,6 +126,8 @@ def _location(client: Any, op: dict[str, Any]) -> dict[str, Any]:
         mode = "comment"
     elif op["action"] == "move_page":
         mode = "move"
+    elif op["action"] == "delete_page":
+        mode = "delete"
     elif op["kind"] == "create":
         mode = "create"
     else:
@@ -137,6 +139,8 @@ def _location(client: Any, op: dict[str, Any]) -> dict[str, Any]:
         "trail": [],
         "partial": False,
     }
+    if mode == "delete" and (op["result"] or {}).get("trashed"):
+        return {**location, "trash": True}
     if page_id is None:
         return location
     page = client.get_page(page_id)

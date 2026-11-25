@@ -204,6 +204,12 @@ class ConfluenceClient:
         self._validate_page_id(page_id)
         return self._request_json("PUT", f"content/{page_id}", json_body=payload)
 
+    def trash_page(self, page_id: str) -> None:
+        self._validate_page_id(page_id)
+        response = self._request("DELETE", f"content/{page_id}")
+        if response.status_code not in {200, 204}:
+            raise ConfluenceAPIError(f"Confluence did not confirm the move to trash (HTTP {response.status_code}).")
+
     def get_attachment(self, page_id: str, filename: str) -> dict[str, Any] | None:
         self._validate_page_id(page_id)
         response = self._get_json(
@@ -279,7 +285,7 @@ class ConfluenceClient:
     def _get_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("GET", path, params=params)
 
-    def _request_json(
+    def _request(
         self,
         method: str,
         path: str,
@@ -289,7 +295,7 @@ class ConfluenceClient:
         files: dict[str, tuple[str, bytes, str]] | None = None,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
-    ) -> dict[str, Any]:
+    ) -> httpx.Response:
         try:
             response = self._client.request(
                 method, path, params=params, json=json_body, files=files, headers=headers,
@@ -337,7 +343,7 @@ class ConfluenceClient:
                 "a page hidden by permissions may also appear unavailable.",
                 status_code=404,
             )
-        if response.status_code == 409:
+        if response.status_code == 409 and method == "PUT":
             raise ConfluenceAPIError(
                 "Confluence rejected the update because the page version changed (HTTP 409). "
                 "Re-read the page and retry with the current version.",
@@ -348,7 +354,22 @@ class ConfluenceClient:
                 f"Confluence returned HTTP {response.status_code}.",
                 status_code=response.status_code,
             )
+        return response
 
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+    ) -> dict[str, Any]:
+        response = self._request(
+            method, path, params=params, json_body=json_body, files=files, headers=headers, timeout=timeout,
+        )
         try:
             payload = response.json()
         except ValueError as exc:

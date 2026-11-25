@@ -180,6 +180,25 @@ test("more than 200 operations are rejected before opening a confirmation", () =
   assert.match(messages[0].message, /200/);
 });
 
+test("a mixed approval names the deletion and says it goes to the trash", () => {
+  const { state, fields } = context();
+  state.ops[0].action = "delete_page";
+  state.ops[1].action = "update_page";
+  Object.assign(state, { locked: () => false, el: element });
+  for (const id of ["confirm-title", "confirm-description", "confirm-note", "confirm-rejection",
+    "confirm-reason", "confirm-submit", "confirm-items", "confirm-dialog"]) {
+    fields[id] = element("div");
+  }
+  fields["confirm-dialog"].showModal = () => {};
+  const constants = script.slice(script.indexOf("var ACTIONS"), script.indexOf("var STATUSES"));
+  vm.runInContext(constants + functionSource("confirmAction"), state);
+  state.confirmAction("approve", ["op-0", "op-1"]);
+  assert.match(fields["confirm-note"].textContent, /移入回收站/);
+  assert.match(fields["confirm-note"].textContent, /子页面/);
+  assert.match(fields["confirm-items"].children[0].textContent, /删除页面/);
+  assert.match(fields["confirm-items"].children[1].textContent, /整页更新/);
+});
+
 test("approval progress stays open until the request succeeds or fails", async () => {
   for (const requestFails of [false, true]) {
     const { state } = context();

@@ -40,6 +40,7 @@ class FakeClient:
         self.update_response = {}
         self.moved = []
         self.move_response = {}
+        self.trashed = []
         self.attachments = {}
         self.uploaded = []
 
@@ -99,6 +100,10 @@ class FakeClient:
     def move_page(self, page_id, position, target_id):
         self.moved.append((page_id, position, target_id))
         return self.move_response
+
+    def trash_page(self, page_id):
+        self.trashed.append(page_id)
+        del self.pages[page_id]
 
     def absolute_url(self, path):
         return f"https://wiki.example.com{path}"

@@ -287,8 +287,9 @@ var $ = function (id) { return document.getElementById(id); };
 var STATE_PATH = "/api/state";
 var APPROVE_PATH = "/api/approve";
 var REJECT_PATH = "/api/reject";
-var ACTIONS = { create_page: "新建页面", add_comment: "新增评论", update_page: "整页更新", update_page_section: "章节更新", move_page: "调整位置" };
-var LOCATION_LABELS = { comment: "评论所在页面", move: "被移动页面的当前路径", update: "原 Wiki 页面路径（批准后修改此页）" };
+var ACTIONS = { create_page: "新建页面", add_comment: "新增评论", update_page: "整页更新", update_page_section: "章节更新", move_page: "调整位置", delete_page: "删除页面" };
+var LOCATION_LABELS = { comment: "评论所在页面", move: "被移动页面的当前路径", update: "原 Wiki 页面路径（批准后修改此页）", delete: "待删除页面路径" };
+var DELETE_NOTICE = "删除操作将把目标页移入回收站。子页面会保留，可能移动到上级。";
 var STATUSES = { pending: "待审批", approved: "已批准·未写入", rejected: "已拒绝", executing: "写入中", succeeded: "已成功", failed: "失败", indeterminate: "结果不明" };
 var LIMITS = "只还原标题、段落、列表、表格、代码块、外部图片和本次入队的图片快照。其他宏、已有附件、样式与权限以 Confluence 页面为准，未还原的宏会在预览中标出。预览在隔离沙箱中显示，不执行脚本。";
 var SECTION_NOTE = "章节更新 · 下面是整页更新后的完整正文，包含本次替换的章节。";
@@ -367,6 +368,7 @@ function describe(op) {
       if (result.url) text += ", " + result.url;
     }
     if (result.rejection_reason) text += "\n拒绝原因 · " + result.rejection_reason;
+    if (result.trashed) text += "\n已移入回收站";
     if (result.uploaded_attachments && result.uploaded_attachments.length) text += "\n已上传图片 · " + result.uploaded_attachments.join(", ");
     if (result.reused_attachments && result.reused_attachments.length) text += "\n已复用图片 · " + result.reused_attachments.join(", ");
     if (result.failed_attachment) text += "\n上传失败 · " + result.failed_attachment;
@@ -406,6 +408,11 @@ function crumbs(trail, partial) {
 
 function locationBlock(op) {
   var box = el("div", "location");
+  if (op.result && op.result.trashed) {
+    box.appendChild(el("div", "label", "已移入回收站"));
+    box.appendChild(el("div", "", heading(op)));
+    return box;
+  }
   var loc = locations[op.id];
   if (!loc) {
     var note = locErrors[op.id]
@@ -632,7 +639,9 @@ function buildPanel(op) {
   var panel = $("panel");
   var key = panelKey;
   panel.replaceChildren();
-  if (op.action === "move_page") {
+  if (op.action === "delete_page") {
+    panel.appendChild(el("p", "limits", DELETE_NOTICE));
+  } else if (op.action === "move_page") {
     panel.appendChild(el("p", "limits", "调整页面位置。下面是入队时计算的移动后顺序；批准时按 Confluence 当时的实际顺序执行。"));
     panel.appendChild(el("pre", "", op.preview || "(没有记录)"));
   } else if (tab === "preview") {
@@ -730,11 +739,12 @@ function render() {
   }
   reasonInput.hidden = !canReject;
   reasonInput.disabled = locked();
-  $("act-approve").textContent = busy ? "处理中…" : op && op.status === "approved" ? "写入" : "批准并写入";
+  $("act-approve").textContent = busy ? "处理中…" : op && op.action === "delete_page" ? "批准删除" : op && op.status === "approved" ? "写入" : "批准并写入";
   var footerStates = {
     pending: "批准后立即写入 Confluence", approved: "已批准，等待写入", executing: "写入中，请等待结果",
     succeeded: "写入成功", failed: "写入失败，请核对执行结果", rejected: "已拒绝", indeterminate: "结果不明，需人工核对 Wiki"
   };
+  if (op && op.result && op.result.trashed) footerStates.succeeded = "已移入回收站";
   $("footer-state").textContent = expired ? "审批会话已失效" : busy ? busyLabel : op ? footerStates[op.status] || op.status : "请选择一条操作";
   $("footer-hint").textContent = op && op.status === "indeterminate" ? "确认实际结果后再决定后续处理" : "核对目标位置、正文与版本后审批";
   var href = op && op.result && safeUrl(op.result.url);
@@ -829,16 +839,18 @@ function confirmAction(kind, ids, reason) {
   }
   confirmKind = kind;
   var approve = kind === "approve";
+  var confirmed = confirmIds.map(function (id) { return ops.find(function (item) { return item.id === id; }); });
+  var includesDelete = approve && confirmed.some(function (op) { return op.action === "delete_page"; });
   $("confirm-title").textContent = approve ? "确认批准并写入" : "确认拒绝操作";
   $("confirm-description").textContent = "本次将" + (approve ? "批准并写入 " : "拒绝 ") + confirmIds.length + " 条操作，请核对范围。";
-  $("confirm-note").textContent = approve ? "确认后立即写入 Confluence，执行结果将在页面中显示。" : "确认后将这些待审批操作标记为已拒绝。";
+  $("confirm-note").textContent = approve ? "确认后立即执行，结果将在页面中显示。" : "确认后将这些待审批操作标记为已拒绝。";
+  if (includesDelete) $("confirm-note").textContent += " " + DELETE_NOTICE;
   $("confirm-rejection").hidden = approve;
   $("confirm-reason").value = reason || "";
-  $("confirm-submit").textContent = approve ? "确认写入" : "确认拒绝";
-  $("confirm-submit").className = approve ? "primary" : "danger";
+  $("confirm-submit").textContent = approve ? (includesDelete ? "确认执行" : "确认写入") : "确认拒绝";
+  $("confirm-submit").className = approve && !includesDelete ? "primary" : "danger";
   $("confirm-items").replaceChildren();
-  confirmIds.forEach(function (id) {
-    var op = ops.find(function (item) { return item.id === id; });
+  confirmed.forEach(function (op) {
     $("confirm-items").appendChild(el("li", "", heading(op) + " · " + (op.space_key || "未知空间") + " · " + (ACTIONS[op.action] || op.action)));
   });
   $("confirm-dialog").showModal();

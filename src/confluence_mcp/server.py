@@ -18,7 +18,7 @@ from .conversion import storage_to_markdown
 from .images import prepare_images
 from .markdown_storage import contains_macro, markdown_to_storage
 from .outline import extract_section, find_headings, replace_section
-from .writes import ensure_write_allowed, writes_enabled
+from .writes import ensure_write_allowed, read_trash_target, writes_enabled
 
 mcp = FastMCP("confluence")
 _review_page = web.ReviewPage()
@@ -750,6 +750,23 @@ def move_page(
     )
 
 
+def delete_page(page_id: str, dry_run: bool = True) -> dict[str, Any]:
+    """Preview or queue moving a single current page to the space trash for human approval."""
+    target = read_trash_target(get_client(), page_id)
+    if dry_run:
+        return {
+            "dry_run": True, "action": "delete_page", "destination": "trash",
+            "page_id": page_id, "title": target.title, "space_key": target.space_key,
+            "version_before": target.version, "parent_page_id": target.parent_page_id,
+        }
+    return _queued(queue.enqueue(
+        "delete_page", kind="update", page_id=page_id, space_key=target.space_key,
+        version_before=target.version, summary=target.title,
+        preview="Move this page to the space trash. Child pages may move up to the nearest parent.",
+        payload={"title": target.title, "parent_page_id": target.parent_page_id},
+    ))
+
+
 @mcp.tool()
 def get_page_outline(page_id: str) -> dict[str, Any]:
     """List the h1-h6 headings of a page without returning its body."""
@@ -936,6 +953,7 @@ def register_write_tools(server: FastMCP) -> None:
         update_page,
         update_page_section,
         move_page,
+        delete_page,
         list_queued_operations,
         get_queued_operations,
         cancel_queued_operations,
