@@ -125,13 +125,19 @@ PAGE = r"""<!doctype html>
   .label { font-size: 12px; font-weight: 600; }
   .url-text { font-size: 12px; overflow-wrap: anywhere; }
   .result { margin: 0; font: 12px/1.8 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .result-details[open] { padding: 8px 12px; border-radius: 7px; background: var(--bad-soft); color: var(--bad); }
+  .result-details[open] { padding: 8px 12px; border-radius: 7px; background: var(--bg); }
+  .result-details.status-succeeded[open] { background: var(--ok-soft); color: var(--ok); }
+  .result-details[open]:is(.status-failed, .status-indeterminate) { background: var(--bad-soft); color: var(--bad); }
   #tabs { display: flex; gap: 24px; padding: 0 27px; border-top: 1px solid #edf0f5; border-bottom: 1px solid var(--line); }
   .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 0 1px; min-height: 49px; background: transparent; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .tab.selected { border-bottom-color: var(--accent); color: var(--accent); font-weight: 650; }
   #panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 17px 25px 23px; background: #f3f5f9; }
   #panel pre { flex: 1; min-height: 0; overflow: auto; margin: 0 auto; width: 100%; max-width: 1000px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); padding: 20px 24px; font: 12px/1.9 Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .diff-add { color: #236442; background: #ecf8f0; } .diff-remove { color: #a34346; background: #fff1f1; } .diff-hunk { color: #526f9b; background: var(--accent-soft); }
+  #panel pre.diff-view { padding: 10px 0; }
+  .diff-line { display: block; min-height: 1lh; padding: 0 16px; }
+  .diff-meta, .diff-hunk { color: var(--muted); background: #f5f7fa; }
+  .diff-add { color: #185b35; background: #dff5e7; }
+  .diff-remove { color: #8a2d35; background: #ffe6e8; }
   .limits { font-size: 12px; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
   .limits summary { cursor: pointer; font-weight: 500; }
   .limits p { margin: 4px 0 0; }
@@ -444,12 +450,13 @@ function renderSpaces() {
 
 function card(op) {
   var on = op.id === selected;
+  var operationId = "操作 ID " + op.id;
   var box = el("div", "card" + (on ? " selected" : ""));
   var label = el("label", "card-check");
   var check = el("input");
   check.type = "checkbox";
   check.dataset.focus = "check-" + op.id;
-  check.setAttribute("aria-label", "勾选 " + heading(op));
+  check.setAttribute("aria-label", "勾选 " + heading(op) + "，" + operationId);
   check.checked = checked.has(op.id);
   check.disabled = locked() || !canApprove(op);
   check.addEventListener("change", function () {
@@ -473,7 +480,7 @@ function card(op) {
   button.appendChild(kicker);
   button.appendChild(el("span", "card-title", heading(op)));
   var meta = op.action === "update_page_section" ? "章节 · " + op.summary : (op.page_id ? "页面 " + op.page_id : "新页面");
-  button.appendChild(el("span", "card-meta", meta));
+  button.appendChild(el("span", "card-meta", meta + " · " + operationId));
   if (op.collection) button.appendChild(el("span", "tag-collection", op.collection));
   var bottom = el("span", "card-bottom");
   bottom.appendChild(el("span", "status status-" + op.status, STATUSES[op.status] || op.status));
@@ -517,17 +524,16 @@ function renderHead(op) {
   var title = el("h2", "", heading(op));
   title.id = "detail-title";
   head.appendChild(title);
-  var facts = [];
+  var facts = ["操作 ID " + op.id];
   if (op.action === "update_page_section") facts.push("更新章节 · " + op.summary);
   if (op.version_before) facts.push("基于 v" + op.version_before);
-  if (facts.length) head.appendChild(el("p", "muted", facts.join(" · ")));
+  head.appendChild(el("p", "muted", facts.join(" · ")));
   head.appendChild(locationBlock(op));
   var metadata = el("details", "metadata");
   metadata.dataset.id = op.id;
   metadata.open = Boolean(wasOpen);
   metadata.appendChild(el("summary", "", "来源、附件与操作信息"));
   var content = el("div", "metadata-content");
-  content.appendChild(el("div", "", "操作 ID · " + op.id));
   content.appendChild(el("div", "", "入队时间 · " + op.created_at));
   var source = sourceBlock(op);
   if (source) content.appendChild(source);
@@ -540,9 +546,9 @@ function renderHead(op) {
   metadata.appendChild(content);
   head.appendChild(metadata);
   if (op.result || op.error) {
-    var result = el("details", "metadata result-details");
+    var result = el("details", "metadata result-details status-" + op.status);
     result.open = op.status === "failed" || op.status === "indeterminate";
-    result.appendChild(el("summary", "", "执行结果与错误详情"));
+    result.appendChild(el("summary", "", op.error ? "执行结果与错误详情" : "执行结果"));
     result.appendChild(el("pre", "result", describe(op)));
     head.appendChild(result);
   }
@@ -581,13 +587,17 @@ function buildPanel(op) {
       ? "入队时保存的统一 diff，相对入队前的版本。"
       : "入队时保存的 Markdown 原文。";
     panel.appendChild(el("p", "limits", caption));
-    var diff = el("pre");
+    var diff = el("pre", op.kind === "update" ? "diff-view" : "");
     if (op.kind === "update") {
-      (op.preview || "(没有记录)").split("\n").forEach(function (line, index, lines) {
-        var className = "";
-        if (line.startsWith("+") && !line.startsWith("+++")) className = "diff-add";
-        if (line.startsWith("-") && !line.startsWith("---")) className = "diff-remove";
-        if (line.startsWith("@@")) className = "diff-hunk";
+      var lines = (op.preview || "(没有记录)").split("\n");
+      var hasHeaders = lines.length >= 3 && lines[0].startsWith("--- ") &&
+        lines[1].startsWith("+++ ") && lines[2].startsWith("@@ ");
+      lines.forEach(function (line, index) {
+        var className = "diff-line";
+        if (hasHeaders && index < 2) className += " diff-meta";
+        else if (line.startsWith("@@ ")) className += " diff-hunk";
+        else if (line.startsWith("+")) className += " diff-add";
+        else if (line.startsWith("-")) className += " diff-remove";
         diff.appendChild(el("span", className, line + (index < lines.length - 1 ? "\n" : "")));
       });
     } else diff.textContent = op.preview || "(没有记录)";

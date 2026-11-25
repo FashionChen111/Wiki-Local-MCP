@@ -37,6 +37,92 @@ test("the complete embedded script compiles", () => {
   new vm.Script(script);
 });
 
+function element(tag, className = "", textContent = "") {
+  return {
+    tag, className, textContent, children: [], dataset: {}, attributes: {},
+    appendChild(node) { this.children.push(node); },
+    replaceChildren() { this.children.length = 0; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {},
+  };
+}
+
+function changesPanel(kind, preview) {
+  const panel = element("section");
+  const state = vm.createContext({ $: () => panel, tab: "diff", panelKey: "", el: element });
+  vm.runInContext(functionSource("buildPanel"), state);
+  state.buildPanel({ action: kind === "update" ? "update_page_section" : "create_page", kind, preview });
+  return panel.children.at(-1);
+}
+
+test("unified diffs render full rows and distinguish content from version headers", () => {
+  const lines = ["--- v7", "+++ v8", "@@ -1,3 +1,4 @@", " # 标题", "----", "++++ 示例", "+新增说明", " 原样保留"];
+  const preview = lines.join("\n");
+  const diff = changesPanel("update", preview);
+
+  assert.equal(diff.tag, "pre");
+  assert.equal(diff.className, "diff-view");
+  assert.deepEqual(diff.children.map(row => row.className), [
+    "diff-line diff-meta", "diff-line diff-meta", "diff-line diff-hunk", "diff-line",
+    "diff-line diff-remove", "diff-line diff-add", "diff-line diff-add", "diff-line",
+  ]);
+  assert.equal(diff.children.map(row => row.textContent).join(""), preview);
+});
+
+test("headerless updates keep their markers and new pages show the original Markdown", () => {
+  const preview = "--- old\n+++ new\n+";
+  assert.deepEqual(changesPanel("update", preview).children.map(row => row.className), [
+    "diff-line diff-remove", "diff-line diff-add", "diff-line diff-add",
+  ]);
+  const markdown = changesPanel("create", preview);
+  assert.equal(markdown.textContent, preview);
+  assert.equal(markdown.children.length, 0);
+});
+
+test("queue cards show the operation ID for submissions with the same title", () => {
+  const { state } = context();
+  Object.assign(state, {
+    el: element, selected: null, locked: () => false,
+    ACTIONS: { update_page: "整页更新" }, STATUSES: { pending: "待审批" },
+  });
+  vm.runInContext(functionSource("card"), state);
+
+  for (const id of ["a4c2eb7f", "31b8dd69"]) {
+    const submission = { id, title: "设备接入", action: "update_page", status: "pending", page_id: "42" };
+    const [checkbox, button] = state.card(submission).children;
+    const metadata = button.children.find(node => node.className === "card-meta");
+    assert.equal(metadata.textContent, `页面 42 · 操作 ID ${id}`);
+    assert.match(checkbox.children[0].attributes["aria-label"], new RegExp(`操作 ID ${id}$`));
+  }
+});
+
+test("expanded result details use the operation status and a matching label", () => {
+  const head = element("header");
+  head.querySelector = () => null;
+  const { state } = context();
+  Object.assign(state, {
+    $: () => head, el: element, locationBlock: () => element("div"), sourceBlock: () => null,
+    ACTIONS: { update_page: "整页更新" },
+    STATUSES: { succeeded: "已成功", failed: "失败", indeterminate: "结果不明", executing: "写入中" },
+  });
+  vm.runInContext(["renderHead", "describe"].map(functionSource).join("\n"), state);
+
+  const cases = [
+    { status: "succeeded", result: { id: "31", version: 2 }, error: null, open: false },
+    { status: "failed", result: null, error: "版本冲突", open: true },
+    { status: "indeterminate", result: { id: "31", version: 1 }, error: "响应超时", open: true },
+    { status: "executing", result: { id: "31", version: 1 }, error: null, open: false },
+  ];
+  for (const { status, result, error, open } of cases) {
+    state.renderHead({ id: "a4c2eb7f", title: "设备接入", action: "update_page", status, result, error });
+    const details = head.children.at(-1);
+    assert.equal(details.className, `metadata result-details status-${status}`);
+    assert.equal(details.open, open);
+    assert.equal(details.children[0].textContent, error ? "执行结果与错误详情" : "执行结果");
+    assert.match(details.children[1].textContent, new RegExp(state.STATUSES[status]));
+  }
+});
+
 test("active and attention filters retain legacy and indeterminate states", () => {
   const { state } = context();
   assert.deepEqual(Array.from(state.visibleOps(), op => op.id), ["op-0", "op-1", "op-2"]);
