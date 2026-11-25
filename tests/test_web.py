@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from confluence_mcp import queue, web, web_page, writes
+from confluence_mcp.server import get_queued_operations
 
 TOKEN = "tok"
 
@@ -120,12 +121,22 @@ def test_unknown_path_is_404(call):
 
 
 def test_state_lists_pending_without_payload(call):
-    op = _pending()
+    message = "[MCP] 补充测试记录\n校对 <版本>"
+    op = _pending(payload={"version": {"number": 4, "message": message}, "body": "secret storage"})
     r = call("GET", "/api/state")
     [item] = json.loads(r.body)["operations"]
     assert item["id"] == op and item["status"] == "pending"
     assert item["preview"] == "-old\n+new"
+    assert item["version_message"] == message
     assert "payload" not in item and b"secret storage" not in r.body
+
+
+def test_state_has_no_version_message_for_unfilled_notes(call):
+    _pending()
+    _pending(payload={"version": {"number": 4, "message": "[MCP]"}})
+    _pending(payload={"title": "Legacy entry"})
+    items = json.loads(call("GET", "/api/state").body)["operations"]
+    assert [item["version_message"] for item in items] == [None, None, None]
 
 
 def test_state_keeps_only_the_20_most_recent_finished(call):
@@ -135,6 +146,37 @@ def test_state_keeps_only_the_20_most_recent_finished(call):
     items = json.loads(call("GET", "/api/state").body)["operations"]
     assert active in [i["id"] for i in items]
     assert len([i for i in items if i["status"] == "rejected"]) == 20
+
+    second = call("GET", "/api/state?history=rejected&page=2")
+    assert second.status == 200
+    page = json.loads(second.body)
+    assert page["history"] == {"page": 2, "pages": 2}
+    assert [op["id"] for op in page["operations"]] == [active, ids[1], ids[0]]
+
+
+def test_history_pages_and_searches_past_recent_results(call):
+    oldest = _pending(space_key="QA", payload={"title": "Older CHECKLIST"})
+    succeeded = [oldest] + [_pending() for _ in range(21)]
+    for op in succeeded:
+        queue.finish(op, "succeeded", result={"id": "42", "version": 4})
+    failed, unknown, rejected, pending = [_pending() for _ in range(4)]
+    queue.finish(failed, "failed", error="Version conflict")
+    queue.finish(unknown, "indeterminate", error="Upload response timed out")
+    queue.reject([rejected])
+
+    first = json.loads(call("GET", "/api/state?history=succeeded").body)
+    assert first["totals"] == {"active": 1, "succeeded": 22, "attention": 2}
+    assert first["history"] == {"page": 1, "pages": 2}
+    assert [op["id"] for op in first["operations"]] == [pending, *reversed(succeeded[2:])]
+    second = json.loads(call("GET", "/api/state?history=succeeded&page=2").body)
+    assert [op["id"] for op in second["operations"]] == [pending, succeeded[1], oldest]
+    assert second["spaces"] == ["OPS", "QA"]
+    matching = json.loads(call("GET", "/api/state?history=succeeded&space=QA&q=checklist").body)
+    assert [op["id"] for op in matching["operations"]] == [pending, oldest]
+    attention = json.loads(call("GET", "/api/state?history=attention").body)
+    assert [op["id"] for op in attention["operations"]] == [pending, unknown, failed]
+    rejected_only = json.loads(call("GET", "/api/state?history=rejected").body)
+    assert [op["id"] for op in rejected_only["operations"]] == [pending, rejected]
 
 
 def test_approve_writes_once_even_when_posted_twice(call, fake_client):
@@ -153,6 +195,28 @@ def test_reject_marks_pending_rejected(call):
     r = call("POST", "/api/reject", {"ids": [op]})
     assert json.loads(r.body) == {"rejected": [op]}
     assert queue.list_ops()[0]["status"] == "rejected"
+
+
+def test_approval_ui_rejection_reason_is_available_to_the_agent(call):
+    first, second, approved = [_pending() for _ in range(3)]
+    queue.approve([approved])
+    reason = "请补充 <测试报告>。"
+    response = call("POST", "/api/reject", {"ids": [first, second, approved], "reason": "  " + reason})
+    assert response.status == 200 and json.loads(response.body) == {"rejected": [first, second]}
+    assert json.loads(call("POST", "/api/reject", {"ids": [first], "reason": "Other"}).body) == {"rejected": []}
+    operations = get_queued_operations([first, second, approved])["operations"]
+    assert [(op["status"], op["result"]) for op in operations] == [
+        ("rejected", {"rejection_reason": reason}),
+        ("rejected", {"rejection_reason": reason}),
+        ("approved", None),
+    ]
+
+
+@pytest.mark.parametrize("reason", [17, {"text": "reason"}, "x" * 501])
+def test_invalid_rejection_reason_does_not_reject_pending_operation(call, reason):
+    op = _pending()
+    assert call("POST", "/api/reject", {"ids": [op], "reason": reason}).status == 400
+    assert queue.get_op(op)["status"] == "pending"
 
 
 @pytest.mark.parametrize(
@@ -201,9 +265,11 @@ def test_page_controls_have_unique_ids_and_linked_tabs():
     assert len(tabs) == 3
     assert all(attrs["aria-controls"] == "panel" for attrs in tabs)
     assert sum(attrs["tabindex"] == "0" for attrs in tabs) == 1
-    [dialog] = [attrs for tag, attrs in controls.elements if tag == "dialog"]
-    assert dialog["aria-labelledby"] in ids
-    assert dialog["aria-describedby"] in ids
+    dialogs = [attrs for tag, attrs in controls.elements if tag == "dialog"]
+    assert {dialog["id"] for dialog in dialogs} == {"confirm-dialog", "approval-progress"}
+    for dialog in dialogs:
+        assert dialog["aria-labelledby"] in ids
+        assert dialog["aria-describedby"] in ids
 
 
 STATE = "/api/state"

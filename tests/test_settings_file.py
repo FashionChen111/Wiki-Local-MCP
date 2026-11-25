@@ -30,16 +30,19 @@ def test_file_settings_do_not_modify_process_environment(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     path.write_text(
         "ATLASSIAN_CONFLUENCE_URL=https://file.example.com/confluence\n"
-        "CONFLUENCE_WRITE_SPACES=OPS\n",
+        "CONFLUENCE_WRITE_SPACES=OPS\n"
+        "CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES=2\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("ATLASSIAN_CONFLUENCE_URL", "https://process.example.com")
     monkeypatch.setenv("CONFLUENCE_WRITE_SPACES", "QA")
+    monkeypatch.setenv("CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES", "9")
     before = dict(os.environ)
     result = settings_file.load_env_file(path)
     assert result == {
         "ATLASSIAN_CONFLUENCE_URL": "https://file.example.com/confluence",
         "CONFLUENCE_WRITE_SPACES": "OPS",
+        "CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES": "2",
     }
     assert dict(os.environ) == before
 

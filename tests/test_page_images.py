@@ -1,7 +1,7 @@
 import pytest
 
 from confluence_mcp import apply, queue, server, writes
-from confluence_mcp.client import ConfluenceAPIError
+from confluence_mcp.client import ConfluenceAPIError, ConfluenceConnectionError
 
 
 @pytest.fixture(autouse=True)
@@ -127,7 +127,7 @@ def test_upload_timeout_preserves_progress_and_stops_batch(fake_client, image_fi
     assert queue.get_op(next_op)["status"] == "pending"
 
 
-def test_second_upload_failure_keeps_first_upload_and_pending_filename(fake_client, image_file):
+def test_second_upload_failure_keeps_first_upload_and_failed_filename(fake_client, image_file):
     second = image_file.with_name("second.svg")
     second.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>', encoding="utf-8")
     op_id = server.create_page(
@@ -146,8 +146,73 @@ def test_second_upload_failure_keeps_first_upload_and_pending_filename(fake_clie
     first_image, second_image = queue.get_attachments(op_id)
     assert result["status"] == "failed" and fake_client.updated == []
     assert result["result"]["uploaded_attachments"] == [first_image.filename]
-    assert result["result"]["uploading_attachment"] == second_image.filename
+    assert result["result"]["failed_attachment"] == second_image.filename
+    assert "uploading_attachment" not in result["result"]
     assert queue.get_op(op_id)["result"] == result["result"]
+
+
+@pytest.mark.parametrize("configured,failures,status,attempts", [
+    (None, 1, "failed", 1),
+    ("2", 2, "succeeded", 3),
+    ("2", 3, "failed", 3),
+])
+def test_upload_retries_only_the_attachment_within_the_budget(
+    configured, failures, status, attempts, config_values, fake_client, image_file, monkeypatch
+):
+    if configured is not None:
+        config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = configured
+    monkeypatch.setattr(apply, "sleep", lambda delay: None)
+    op_id = _page_image("create", image_file)["operation_id"]
+    fake_client.update_response = {"id": "77", "version": {"number": 2}}
+    original_upload = fake_client.upload_attachment
+    [image] = queue.get_attachments(op_id)
+    calls = []
+
+    def upload(*args):
+        calls.append(args)
+        progress = queue.get_op(op_id)["result"]
+        assert progress["uploading_attachment"] == image.filename
+        if len(calls) <= failures:
+            raise ConfluenceConnectionError("Unable to connect for image upload")
+        return original_upload(*args)
+
+    fake_client.upload_attachment = upload
+    result = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
+    assert result["status"] == status and len(calls) == attempts
+    assert len(fake_client.created) == 1
+    assert len(fake_client.updated) == int(status == "succeeded")
+    assert "uploading_attachment" not in result["result"]
+    if status == "failed":
+        assert result["result"]["failed_attachment"] == image.filename
+    else:
+        assert result["result"]["uploaded_attachments"] == [image.filename]
+    assert result["result"].get("attachment_upload_retries", {}).get(image.filename, 0) == attempts - 1
+    assert server.get_queued_operations([op_id])["operations"][0]["result"] == result["result"]
+
+
+@pytest.mark.parametrize("status_code", [None, 502, 503, 504])
+def test_unconfirmed_upload_is_never_retried(status_code, config_values, fake_client, image_file):
+    config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = "2"
+    op_id = _page_image("update", image_file)["operation_id"]
+    attempts = []
+
+    def upload(page_id, filename, *_):
+        attempts.append(filename)
+        raise ConfluenceAPIError("Upload not confirmed", status_code=status_code)
+
+    fake_client.upload_attachment = upload
+    result = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
+    assert result["status"] == "indeterminate" and fake_client.updated == []
+    assert attempts == [result["result"]["uploading_attachment"]]
+
+
+@pytest.mark.parametrize("configured", ["-1", "two"])
+def test_invalid_retry_setting_fails_before_creating_the_placeholder(configured, config_values, fake_client, image_file):
+    config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = configured
+    op_id = _page_image("create", image_file)["operation_id"]
+    result = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
+    assert result["status"] == "failed" and "CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES" in result["error"]
+    assert fake_client.created == fake_client.uploaded == fake_client.updated == []
 
 
 def test_missing_image_does_not_queue_a_broken_page(fake_client, tmp_path):

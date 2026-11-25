@@ -26,7 +26,8 @@ OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
 PENDING_MESSAGE = (
     "Queued, not executed. A person must approve it outside MCP with "
-    "`confluence-mcp-review web` or `confluence-mcp-review approve`, which then writes it."
+    "`confluence-mcp-review web` or `confluence-mcp-review approve`, which then writes it. "
+    "After review, call get_queued_operations with this operation_id to check the outcome."
 )
 
 
@@ -871,7 +872,11 @@ def list_queued_operations(page: int = 1, page_size: int = 50) -> dict[str, Any]
 
 
 def get_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
-    """Read queued writes by id, with their preview, in the order requested."""
+    """Read queued writes by id, with their preview, status, result and error.
+
+    After human review, this includes any recorded attachment progress or rejection reason.
+    Operations are returned in the order requested.
+    """
     _check_ids(operation_ids)
     fields = _QUEUE_FIELDS + ("preview", "result", "error", "updated_at")
     operations: list[dict[str, Any]] = []

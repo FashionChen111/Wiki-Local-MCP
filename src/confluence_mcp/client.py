@@ -22,11 +22,15 @@ class ConfluenceConfigurationError(RuntimeError):
 
 
 class ConfluenceAPIError(RuntimeError):
-    """Raised when Confluence returns an unsuccessful response."""
+    """Raised when a Confluence request fails or cannot be confirmed."""
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class ConfluenceConnectionError(ConfluenceAPIError):
+    """A connection could not be obtained before the request was sent."""
 
 
 @dataclass(frozen=True)
@@ -263,10 +267,12 @@ class ConfluenceClient:
             response = self._client.request(
                 method, path, params=params, json=json_body, files=files, headers=headers,
             )
+        except (httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise ConfluenceConnectionError("Timed out waiting for a connection to Confluence.") from exc
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
-            raise ConfluenceAPIError(
+            raise ConfluenceConnectionError(
                 "Could not connect to Confluence. Check the URL, network/VPN, and TLS CA settings."
             ) from exc
         except httpx.RequestError as exc:

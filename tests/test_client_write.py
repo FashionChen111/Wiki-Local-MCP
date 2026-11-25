@@ -1,7 +1,7 @@
 import pytest
 import httpx
 
-from confluence_mcp.client import ConfluenceAPIError, ConfluenceClient
+from confluence_mcp.client import ConfluenceAPIError, ConfluenceClient, ConfluenceConnectionError
 from confluence_mcp.client import ConfluenceSettings
 
 
@@ -70,3 +70,22 @@ def test_unconfirmed_attachment_upload_is_not_success(status, body):
         assert excinfo.value.status_code == (403 if status == 403 else None)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("error_type,expected_type", [
+    (httpx.ConnectError, ConfluenceConnectionError),
+    (httpx.ConnectTimeout, ConfluenceConnectionError),
+    (httpx.PoolTimeout, ConfluenceConnectionError),
+    (httpx.ReadTimeout, ConfluenceAPIError),
+    (httpx.WriteTimeout, ConfluenceAPIError),
+])
+def test_attachment_distinguishes_failures_before_the_request_is_sent(error_type, expected_type):
+    def handle(request):
+        raise error_type("sample timeout", request=request)
+
+    client = ConfluenceClient.__new__(ConfluenceClient)
+    with httpx.Client(base_url="https://wiki.example/rest/api/", transport=httpx.MockTransport(handle)) as transport:
+        client._client = transport
+        with pytest.raises(ConfluenceAPIError) as excinfo:
+            client.upload_attachment("42", "image.png", b"image", "image/png")
+        assert type(excinfo.value) is expected_type

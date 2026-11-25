@@ -35,32 +35,27 @@ PAGE = r"""<!doctype html>
   a { color: var(--accent); }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-  .topbar { min-height: 72px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 32px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .topbar { min-height: 64px; flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 9px 24px; background: var(--surface); border-bottom: 1px solid var(--line); }
   .brand, .top-tools { display: flex; align-items: center; gap: 13px; }
+  .top-tools { margin-left: auto; }
   .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; color: #fff; background: var(--text); border-radius: 10px; }
   .brand-mark svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
-  .brand strong { font-size: 19px; letter-spacing: -.4px; white-space: nowrap; }
-  .brand-caption { border-left: 1px solid var(--line); padding-left: 14px; color: var(--muted); font-size: 13px; }
-  #sync-state { font-size: 12px; color: var(--muted); }
-  #sync-state.error { color: var(--bad); }
-  .layout-menu { position: relative; font-size: 12px; color: var(--muted); }
-  .layout-menu > summary { min-height: 44px; display: flex; align-items: center; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; list-style: none; }
-  .layout-menu > summary::-webkit-details-marker { display: none; }
-  .split-tools { position: absolute; right: 0; top: 50px; width: 150px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px #18263e14; z-index: 5; }
-  .app { flex: 1; min-height: 0; width: min(1800px, 100%); margin: 0 auto; padding: 23px 32px 24px; display: flex; flex-direction: column; }
-  .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-bottom: 21px; }
-  .page-heading h1 { font-size: 25px; font-weight: 650; letter-spacing: -.5px; }
-  .page-heading p { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .totals { display: flex; }
-  .total { display: flex; align-items: baseline; gap: 10px; min-width: 110px; padding: 0 22px; border-left: 1px solid var(--line); white-space: nowrap; }
-  .total:first-child { border: 0; }
-  .total strong { font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .brand h1 { font-size: 19px; letter-spacing: -.4px; white-space: nowrap; }
+  .brand-caption { border-left: 1px solid var(--line); padding-left: 14px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  #session-state, #sync-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #session-state { display: inline-flex; align-items: center; gap: 6px; }
+  #session-state::before { content: ""; width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+  #session-state[data-state="valid"] { color: var(--ok); }
+  #session-state[data-state="unavailable"] { color: var(--warn); }
+  #session-state[data-state="expired"] { color: var(--bad); }
+  #sync-state:empty { display: none; }
+  .totals { display: flex; gap: 3px; }
+  .total { display: flex; align-items: baseline; gap: 7px; padding: 4px 11px; border-color: transparent; white-space: nowrap; }
+  .total[aria-pressed="true"] { background: var(--bg); border-color: var(--line); }
+  .total strong { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .total span { font-size: 12px; color: var(--muted); }
   #active-total { color: var(--accent); } #success-total { color: var(--ok); } #attention-total { color: var(--bad); }
-  #notice { flex-shrink: 0; padding: 10px 14px; margin-bottom: 14px; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 7px; font-size: 13px; overflow-wrap: anywhere; }
-  #notice:empty { display: none; }
-  #notice.error { color: var(--bad); background: var(--bad-soft); border-color: #edc8c9; }
-  #main { flex: 1; min-height: 0; display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+  #main { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--surface); }
   #queue { flex: 0 0 auto; width: 30%; min-width: 260px; display: flex; flex-direction: column; min-height: 0; background: #fbfcfe; }
   .queue-tools { padding: 20px 18px 0; }
   .queue-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
@@ -69,7 +64,7 @@ PAGE = r"""<!doctype html>
   .count { padding: 0 7px; border-radius: 5px; font-size: 12px; font-weight: 500; background: #e9edf4; color: #56667d; }
   #search { width: 100%; border: 1px solid #ccd5e2; border-radius: 7px; background: var(--surface); padding: 9px 12px; color: var(--text); font-size: 13px; }
   #search::placeholder { color: var(--muted); }
-  .filters { display: flex; gap: 5px; margin: 10px 0 8px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 8px; }
   .filter { padding: 0 9px; border-color: transparent; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .filter[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
   .space-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
@@ -98,22 +93,30 @@ PAGE = r"""<!doctype html>
   .queue-bottom { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 15px; background: var(--surface); border-top: 1px solid var(--line); }
   #selection-count { flex: 1; min-width: 65px; font-size: 12px; color: var(--muted); }
   .queue-bottom button { flex: 1; font-size: 12px; padding: 0 9px; white-space: nowrap; }
+  .history-pages { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .history-pages button { min-height: 36px; padding: 0 8px; white-space: nowrap; }
   #divider { flex: 0 0 8px; position: relative; cursor: col-resize; touch-action: none; background: #fbfcfe; }
   #divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--line); }
   #divider:hover::before { background: var(--accent); width: 2px; }
   #detail { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   #detail-head { flex-shrink: 0; max-height: 36vh; overflow-y: auto; padding: 20px 27px 14px; }
   .detail-kicker { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .detail-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; gap: 10px 24px; margin-top: 10px; }
+  .detail-context { display: grid; gap: 8px; overflow-wrap: anywhere; }
   .operation-type { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
   .type-label { padding: 3px 8px; color: var(--accent); background: var(--accent-soft); border-radius: 4px; font-size: 12px; font-weight: 600; }
   .detail-status { border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; background: var(--bg); }
   .detail-status.status-pending, .detail-status.status-approved { background: var(--warn-soft); border-color: #f1dfbc; }
   .detail-status.status-succeeded { background: var(--ok-soft); border-color: #c8e3d1; }
   .detail-status.status-failed, .detail-status.status-indeterminate { background: var(--bad-soft); border-color: #edc8c9; }
-  #detail-head h2 { font-size: 23px; font-weight: 650; letter-spacing: -.4px; margin: 9px 0 3px; overflow-wrap: anywhere; }
+  #detail-head h2 { font-size: 23px; font-weight: 650; letter-spacing: -.4px; margin: 0 0 3px; overflow-wrap: anywhere; }
   .muted { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-  .location { margin-top: 12px; font-size: 12px; }
-  .location .label { color: var(--muted); margin-bottom: 3px; }
+  .version-message, .location { width: fit-content; max-width: 100%; padding: 5px 11px; border-radius: 14px; }
+  .version-message { display: flex; align-items: baseline; gap: 8px; background: var(--accent-soft); font-size: 13px; }
+  .version-message .label { flex-shrink: 0; color: var(--accent); }
+  .version-message-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .location { background: #f3f1ed; color: #574d40; font-size: 12px; }
+  .location .label { margin-bottom: 3px; }
   .crumbs { overflow-wrap: anywhere; }
   .crumbs .sep { margin: 0 7px; color: var(--muted); }
   .newpage { margin-top: 3px; font-weight: 500; overflow-wrap: anywhere; }
@@ -143,10 +146,19 @@ PAGE = r"""<!doctype html>
   .limits p { margin: 4px 0 0; }
   .frame { flex: 1 1 0; min-height: 0; width: 100%; max-width: 1000px; margin: 0 auto; border: 1px solid #e3e8ef; border-radius: 7px; background: var(--surface); }
   .detail-footer { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 14px 26px; border-top: 1px solid var(--line); }
+  .footer-feedback { flex: 1 1 160px; min-width: 0; }
   #footer-state { font-size: 12px; color: #506079; }
   #footer-hint { margin-top: 3px; font-size: 12px; color: var(--muted); }
-  .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+  #notice { font-size: 12px; overflow-wrap: anywhere; }
+  #notice:not(:empty) { margin-top: 4px; }
+  #notice.error { color: var(--bad); }
+  .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-left: auto; }
   .actions button, .actions .button { white-space: nowrap; }
+  .reject-action { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rejection-reason { min-width: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 13px; }
+  .rejection-reason::placeholder { color: var(--muted); }
+  #rejection-reason { width: clamp(150px, 18vw, 250px); }
+  #confirm-rejection { display: grid; gap: 6px; margin-top: 13px; }
   .button { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; text-decoration: none; }
   [hidden] { display: none !important; }
   dialog { width: min(490px, calc(100vw - 32px)); max-height: calc(100svh - 40px); padding: 27px; color: var(--text); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 22px 80px #172d4d30; }
@@ -156,21 +168,22 @@ PAGE = r"""<!doctype html>
   dialog ul { max-height: 220px; overflow-y: auto; padding: 12px 13px 12px 30px; margin: 17px 0; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; font-size: 13px; overflow-wrap: anywhere; }
   dialog li { padding: 4px 0; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+  #approval-progress { width: min(320px, calc(100vw - 32px)); padding: 22px 24px; }
+  #approval-progress-title { display: flex; align-items: center; gap: 10px; }
+  #approval-progress-title::before { content: ""; width: 18px; height: 18px; flex-shrink: 0; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: approval-spin .8s linear infinite; }
+  @keyframes approval-spin { to { transform: rotate(360deg); } }
   @media (max-width: 1100px) {
-    .app { padding: 20px; } .topbar { padding: 10px 20px; }
-    .total { min-width: 90px; padding: 0 14px; gap: 7px; }
+    .topbar { padding-inline: 18px; }
+    .total { padding-inline: 10px; gap: 6px; }
     #detail-head { padding: 18px 21px 12px; } #tabs { padding: 0 21px; gap: 20px; }
     #panel { padding: 15px 17px 20px; } .detail-footer { padding: 12px 20px; }
   }
   @media (max-width: 760px) {
     body { height: auto; min-height: 100svh; overflow: auto; }
-    .topbar { min-height: 64px; padding: 8px 16px; } .brand { gap: 8px; } .brand strong { font-size: 17px; }
-    .brand-mark { width: 32px; height: 32px; } .brand-caption, .layout-menu, #sync-state { display: none; }
-    .top-tools::after { content: "本机审批"; color: var(--muted); font-size: 12px; white-space: nowrap; }
-    #sync-state.error { display: block; } .top-tools:has(#sync-state.error)::after { display: none; }
-    .app { padding: 20px 12px 16px; }
-    .page-heading { align-items: flex-start; flex-direction: column; gap: 15px; padding: 0 4px 17px; }
-    .page-heading h1 { font-size: 23px; } .totals { width: 100%; } .total { flex: 1; min-width: 0; padding: 0 12px; } .total:first-child { padding-left: 0; } .total strong { font-size: 21px; }
+    .topbar { padding: 8px 16px; } .brand { gap: 8px; } .brand h1 { font-size: 17px; }
+    .brand-mark { width: 32px; height: 32px; } .brand-caption, #sync-state { display: none; }
+    .top-tools, .totals { width: 100%; }
+    .total { flex: 1; justify-content: center; }
     #main { flex-direction: column; }
     #queue { width: auto !important; min-width: 0; height: 390px; border-bottom: 1px solid var(--line); }
     .queue-tools { padding: 16px 16px 0; } .queue-title { margin-bottom: 10px; } .filters { margin: 5px 0; } .space-row { padding-bottom: 5px; }
@@ -180,73 +193,90 @@ PAGE = r"""<!doctype html>
     #tabs { gap: 20px; padding: 0 17px; } #panel { padding: 14px 12px 18px; }
     #panel pre { padding: 16px; } .detail-footer { padding: 13px 17px; } .actions { width: 100%; } .actions button { flex: 1; }
   }
-  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+    #approval-progress-title::before { animation: none; }
+  }
 </style>
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
     <div class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z M3 12l9 5 9-5 M3 16l9 5 9-5"/></svg></div>
-    <strong>Wiki Local</strong><span class="brand-caption">文档写入审批</span>
+    <h1>Wiki Local</h1><span class="brand-caption">文档写入审批</span>
+    <span id="session-state" data-state="checking" role="status">检查会话…</span>
   </div>
   <div class="top-tools">
-    <span id="sync-state">正在读取队列…</span>
-    <details class="layout-menu"><summary>布局设置</summary>
-      <div class="split-tools" role="group" aria-label="队列宽度">
-        <button type="button" id="split-narrow">收窄队列</button>
-        <button type="button" id="split-wide">加宽队列</button>
-        <button type="button" id="split-reset">恢复默认</button>
-      </div>
-    </details>
+    <div class="totals" role="group" aria-label="按状态查看审批记录">
+      <button type="button" class="total" data-filter="active" aria-controls="list" aria-pressed="true"><strong id="active-total">—</strong><span>待处理</span></button>
+      <button type="button" class="total" data-filter="succeeded" aria-controls="list" aria-pressed="false"><strong id="success-total">—</strong><span>已成功</span></button>
+      <button type="button" class="total" data-filter="attention" aria-controls="list" aria-pressed="false"><strong id="attention-total">—</strong><span>需关注</span></button>
+    </div>
+    <span id="sync-state"></span>
   </div>
 </header>
-<main class="app">
-  <section class="page-heading" aria-label="队列概览">
-    <div><h1>写入审批</h1><p>全部未结束操作及最近 20 条已结束记录。</p></div>
-    <div class="totals">
-      <div class="total"><strong id="active-total">—</strong><span>待处理</span></div>
-      <div class="total"><strong id="success-total">—</strong><span>已成功</span></div>
-      <div class="total"><strong id="attention-total">—</strong><span>需关注</span></div>
+<main id="main">
+  <aside id="queue" aria-label="审批队列">
+    <div class="queue-tools">
+      <div class="queue-title"><h2>审批队列 <span id="queue-count" class="count">0</span></h2><span>QUEUE</span></div>
+      <label class="sr-only" for="search">搜索标题、操作 ID</label><input id="search" type="search" placeholder="搜索标题、操作 ID" autocomplete="off" maxlength="300">
+      <div class="filters" role="group" aria-label="按操作状态筛选">
+        <button type="button" class="filter" data-filter="active" aria-pressed="true">待处理 <span id="active-count">0</span></button>
+        <button type="button" class="filter" data-filter="all" aria-pressed="false">全部</button>
+        <button type="button" class="filter" data-filter="succeeded" aria-pressed="false">已成功</button>
+        <button type="button" class="filter" data-filter="attention" aria-pressed="false">需关注</button>
+        <button type="button" class="filter" data-filter="rejected" aria-pressed="false">已拒绝</button>
+      </div>
+      <div class="space-row">
+        <label class="check-all"><input type="checkbox" id="check-all">选择当前结果</label>
+        <label for="space-filter" class="sr-only">按空间筛选</label><select id="space-filter"><option value="">全部空间</option></select>
+      </div>
     </div>
+    <div id="list" aria-label="操作列表"></div>
+    <nav id="history-pages" class="history-pages" aria-label="历史记录翻页" hidden>
+      <button type="button" id="history-prev">上一页</button>
+      <span id="history-position" aria-live="polite"></span>
+      <button type="button" id="history-next">下一页</button>
+    </nav>
+    <div class="queue-bottom"><span id="selection-count">已勾选 0 条</span><button type="button" id="reject-selected" class="danger" disabled>拒绝所选</button><button type="button" id="approve-selected" class="primary" disabled>批准所选</button></div>
+  </aside>
+  <div id="divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整队列与文档宽度：拖动，或聚焦后用左右方向键" aria-valuemin="20" aria-valuemax="80" aria-valuenow="30"></div>
+  <section id="detail" aria-label="操作详情">
+    <div id="detail-head"></div>
+    <div id="tabs" role="tablist" aria-label="文档查看方式">
+      <button type="button" id="tab-preview" class="tab selected" role="tab" data-tab="preview" aria-controls="panel" aria-selected="true" tabindex="0">正文预览</button>
+      <button type="button" id="tab-diff" class="tab" role="tab" data-tab="diff" aria-controls="panel" aria-selected="false" tabindex="-1">改动记录</button>
+      <button type="button" id="tab-source" class="tab" role="tab" data-tab="source" aria-controls="panel" aria-selected="false" tabindex="-1">源码</button>
+    </div>
+    <div id="panel" role="tabpanel" aria-labelledby="tab-preview" tabindex="0"></div>
+    <footer class="detail-footer">
+      <div class="footer-feedback">
+        <p id="footer-state">请选择一条操作</p><p id="footer-hint">核对目标位置与文档内容后审批</p>
+        <p id="notice" role="status"></p>
+      </div>
+      <div class="actions">
+        <a id="result-link" class="button" target="_blank" rel="noopener noreferrer" hidden>打开 Wiki 页面</a>
+        <div class="reject-action">
+          <label class="sr-only" for="rejection-reason">拒绝原因（可选）</label>
+          <input id="rejection-reason" class="rejection-reason" type="text" placeholder="拒绝原因（可选）" maxlength="500" autocomplete="off" hidden>
+          <button type="button" id="act-reject" class="danger" disabled>拒绝</button>
+        </div>
+        <button type="button" id="act-approve" class="primary" disabled>批准并写入</button>
+      </div>
+    </footer>
   </section>
-  <div id="notice" role="status" aria-live="polite"></div>
-  <div id="main">
-    <aside id="queue" aria-label="审批队列">
-      <div class="queue-tools">
-        <div class="queue-title"><h2>审批队列 <span id="queue-count" class="count">0</span></h2><span>QUEUE</span></div>
-        <label class="sr-only" for="search">搜索标题、操作 ID</label><input id="search" type="search" placeholder="搜索标题、操作 ID" autocomplete="off">
-        <div class="filters" role="group" aria-label="按操作状态筛选">
-          <button type="button" class="filter" data-filter="active" aria-pressed="true">待处理 <span id="active-count">0</span></button>
-          <button type="button" class="filter" data-filter="all" aria-pressed="false">全部</button>
-          <button type="button" class="filter" data-filter="attention" aria-pressed="false">需关注</button>
-        </div>
-        <div class="space-row">
-          <label class="check-all"><input type="checkbox" id="check-all">选择当前结果</label>
-          <label for="space-filter" class="sr-only">按空间筛选</label><select id="space-filter"><option value="">全部空间</option></select>
-        </div>
-      </div>
-      <div id="list" aria-label="操作列表"></div>
-      <div class="queue-bottom"><span id="selection-count">已勾选 0 条</span><button type="button" id="reject-selected" class="danger" disabled>拒绝所选</button><button type="button" id="approve-selected" class="primary" disabled>批准所选</button></div>
-    </aside>
-    <div id="divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整队列与文档宽度：拖动，或聚焦后用左右方向键" aria-valuemin="20" aria-valuemax="80" aria-valuenow="30"></div>
-    <section id="detail" aria-label="操作详情">
-      <div id="detail-head"></div>
-      <div id="tabs" role="tablist" aria-label="文档查看方式">
-        <button type="button" id="tab-preview" class="tab selected" role="tab" data-tab="preview" aria-controls="panel" aria-selected="true" tabindex="0">正文预览</button>
-        <button type="button" id="tab-diff" class="tab" role="tab" data-tab="diff" aria-controls="panel" aria-selected="false" tabindex="-1">改动记录</button>
-        <button type="button" id="tab-source" class="tab" role="tab" data-tab="source" aria-controls="panel" aria-selected="false" tabindex="-1">源码</button>
-      </div>
-      <div id="panel" role="tabpanel" aria-labelledby="tab-preview" tabindex="0"></div>
-      <footer class="detail-footer">
-        <div><p id="footer-state">请选择一条操作</p><p id="footer-hint">核对目标位置与文档内容后审批</p></div>
-        <div class="actions"><a id="result-link" class="button" target="_blank" rel="noopener noreferrer" hidden>打开 Wiki 页面</a><button type="button" id="act-reject" class="danger" disabled>拒绝</button><button type="button" id="act-approve" class="primary" disabled>批准并写入</button></div>
-      </footer>
-    </section>
-  </div>
 </main>
 <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-description">
   <h2 id="confirm-title">确认批准并写入</h2><p id="confirm-description"></p><ul id="confirm-items"></ul><p id="confirm-note"></p>
+  <div id="confirm-rejection" hidden>
+    <label for="confirm-reason">拒绝原因（可选）</label>
+    <input id="confirm-reason" class="rejection-reason" type="text" maxlength="500" autocomplete="off">
+  </div>
   <div class="dialog-actions"><button type="button" id="confirm-cancel" autofocus>取消</button><button type="button" id="confirm-submit" class="primary">确认写入</button></div>
+</dialog>
+<dialog id="approval-progress" aria-labelledby="approval-progress-title" aria-describedby="approval-progress-message">
+  <h2 id="approval-progress-title">审批中</h2>
+  <p id="approval-progress-message"></p>
 </dialog>
 <script>
 "use strict";
@@ -265,7 +295,9 @@ var SECTION_NOTE = "章节更新 · 下面是整页更新后的完整正文，�
 var NARROW = "(max-width: 760px)";
 var MIN_LIST = 260, MIN_DETAIL = 380, DEFAULT_SPLIT = 0.3;
 var ops = [], selected = null, tab = "preview", locations = {}, locErrors = {}, locLoading = {};
-var filter = "active", checked = new Set(), refreshing = null;
+var filter = "active", checked = new Set(), refreshing = null, refreshingPath = "", loadedPath = "";
+var queueTotal = 0, totals = { active: 0, succeeded: 0, attention: 0 }, spaces = [];
+var historyPage = 1, historyState = { page: 1, pages: 1 };
 var confirmKind = "approve", confirmIds = [], busyLabel = "";
 var busy = false, expired = false, timer = null, panelKey = "", headKey = "", dragging = false;
 var split = readSplit();
@@ -282,15 +314,26 @@ function notice(text, isError) {
   $("notice").className = isError ? "error" : "";
 }
 
+function setSessionState(state, label, detail) {
+  var indicator = $("session-state");
+  if (indicator.dataset.state !== state) {
+    indicator.dataset.state = state;
+    indicator.textContent = label;
+  }
+  indicator.title = detail || "";
+}
+
 function locked() { return busy || expired; }
 
 function stop() {
   expired = true;
   clearInterval(timer);
-  notice("会话失效，请重新运行 confluence-mcp-review web", true);
-  $("sync-state").textContent = "会话失效";
-  $("sync-state").className = "error";
-  if ($("confirm-dialog").open) $("confirm-dialog").close();
+  ["confirm-dialog", "approval-progress"].forEach(function (id) {
+    var dialog = $(id);
+    if (dialog.open) dialog.close();
+  });
+  notice("会话失效，请重新打开审批页", true);
+  setSessionState("expired", "会话失效");
   render();
 }
 
@@ -318,12 +361,18 @@ function describe(op) {
   var text = "状态 · " + (STATUSES[op.status] || op.status);
   if (error) text += "\n错误 · " + error;
   if (result) {
-    text += "\n结果 · 页面 " + result.id;
-    if (result.version != null) text += ", 版本 " + result.version;
-    if (result.url) text += ", " + result.url;
+    if (result.id) {
+      text += "\n结果 · 页面 " + result.id;
+      if (result.version != null) text += ", 版本 " + result.version;
+      if (result.url) text += ", " + result.url;
+    }
+    if (result.rejection_reason) text += "\n拒绝原因 · " + result.rejection_reason;
     if (result.uploaded_attachments && result.uploaded_attachments.length) text += "\n已上传图片 · " + result.uploaded_attachments.join(", ");
     if (result.reused_attachments && result.reused_attachments.length) text += "\n已复用图片 · " + result.reused_attachments.join(", ");
+    if (result.failed_attachment) text += "\n上传失败 · " + result.failed_attachment;
     if (result.uploading_attachment) text += "\n上传待核对 · " + result.uploading_attachment;
+    var retries = Object.entries(result.attachment_upload_retries || {});
+    if (retries.length) text += "\n附件重试 · " + retries.map(function (item) { return item[0] + " · " + item[1] + " 次"; }).join(", ");
   }
   return text;
 }
@@ -407,9 +456,14 @@ function visibleOps() {
   var query = $("search").value.trim().toLocaleLowerCase();
   var space = $("space-filter").value;
   return ops.filter(function (op) {
-    var matchesStatus = filter === "all" || (filter === "attention"
-      ? op.status === "failed" || op.status === "indeterminate"
-      : canApprove(op) || op.status === "executing");
+    var active = canApprove(op) || op.status === "executing";
+    var matchesStatus = {
+      active: active,
+      all: historyPage === 1 || !active,
+      succeeded: op.status === "succeeded",
+      attention: op.status === "failed" || op.status === "indeterminate",
+      rejected: op.status === "rejected"
+    }[filter];
     return matchesStatus && (!space || op.space_key === space)
       && (!query || [heading(op), op.id, op.summary].join(" ").toLocaleLowerCase().includes(query));
   });
@@ -434,7 +488,6 @@ function renderSelection() {
 
 function renderSpaces() {
   var control = $("space-filter");
-  var spaces = Array.from(new Set(ops.map(function (op) { return op.space_key; }).filter(Boolean))).sort();
   var values = Array.from(control.options).slice(1).map(function (option) { return option.value; });
   if (JSON.stringify(spaces) === JSON.stringify(values)) return;
   var previous = control.value;
@@ -471,10 +524,13 @@ function card(op) {
   button.setAttribute("aria-pressed", String(on));
   var kicker = el("span", "card-kicker");
   kicker.appendChild(el("span", "", (ACTIONS[op.action] || op.action) + " · " + (op.space_key || "未知空间")));
-  var created = new Date(op.created_at);
-  if (!Number.isNaN(created.getTime())) {
-    var time = el("span", "", created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
-    time.title = created.toLocaleString("zh-CN", { hour12: false });
+  var active = canApprove(op) || op.status === "executing";
+  var timestamp = new Date(active ? op.created_at : op.updated_at);
+  if (!Number.isNaN(timestamp.getTime())) {
+    var time = el("span", "", active
+      ? timestamp.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+      : timestamp.toLocaleDateString("zh-CN"));
+    time.title = (active ? "入队于 " : "结束于 ") + timestamp.toLocaleString("zh-CN", { hour12: false });
     kicker.appendChild(time);
   }
   button.appendChild(kicker);
@@ -499,7 +555,7 @@ function renderList() {
   var scrollTop = list.scrollTop;
   list.replaceChildren();
   var visible = visibleOps();
-  if (!visible.length) list.appendChild(el("p", "muted", ops.length ? "没有符合筛选条件的操作。" : "队列是空的。"));
+  if (!visible.length) list.appendChild(el("p", "muted", queueTotal ? "没有符合筛选条件的操作。" : "队列是空的。"));
   visible.forEach(function (op) { list.appendChild(card(op)); });
   list.scrollTop = scrollTop;
   if (focusId !== undefined) {
@@ -521,20 +577,35 @@ function renderHead(op) {
   kicker.appendChild(type);
   kicker.appendChild(el("span", "status detail-status status-" + op.status, STATUSES[op.status] || op.status));
   head.appendChild(kicker);
+  var overview = el("div", "detail-overview");
+  var identity = el("div", "detail-identity");
   var title = el("h2", "", heading(op));
   title.id = "detail-title";
-  head.appendChild(title);
+  identity.appendChild(title);
   var facts = ["操作 ID " + op.id];
   if (op.action === "update_page_section") facts.push("更新章节 · " + op.summary);
   if (op.version_before) facts.push("基于 v" + op.version_before);
-  head.appendChild(el("p", "muted", facts.join(" · ")));
-  head.appendChild(locationBlock(op));
+  identity.appendChild(el("p", "muted", facts.join(" · ")));
+  overview.appendChild(identity);
+  var context = el("div", "detail-context");
+  if (op.version_message) {
+    var message = el("p", "version-message");
+    message.appendChild(el("span", "label", "提交说明"));
+    message.appendChild(el("span", "version-message-text", op.version_message));
+    context.appendChild(message);
+  }
+  context.appendChild(locationBlock(op));
+  overview.appendChild(context);
+  head.appendChild(overview);
   var metadata = el("details", "metadata");
   metadata.dataset.id = op.id;
   metadata.open = Boolean(wasOpen);
   metadata.appendChild(el("summary", "", "来源、附件与操作信息"));
   var content = el("div", "metadata-content");
   content.appendChild(el("div", "", "入队时间 · " + op.created_at));
+  if (!canApprove(op) && op.status !== "executing" && op.updated_at) {
+    content.appendChild(el("div", "", "结束时间 · " + new Date(op.updated_at).toLocaleString("zh-CN", { hour12: false })));
+  }
   var source = sourceBlock(op);
   if (source) content.appendChild(source);
   if (op.attachments && op.attachments.length) {
@@ -547,8 +618,9 @@ function renderHead(op) {
   head.appendChild(metadata);
   if (op.result || op.error) {
     var result = el("details", "metadata result-details status-" + op.status);
-    result.open = op.status === "failed" || op.status === "indeterminate";
-    result.appendChild(el("summary", "", op.error ? "执行结果与错误详情" : "执行结果"));
+    var rejected = op.status === "rejected";
+    result.open = rejected || op.status === "failed" || op.status === "indeterminate";
+    result.appendChild(el("summary", "", rejected ? "拒绝详情" : op.error ? "执行结果与错误详情" : "执行结果"));
     result.appendChild(el("pre", "result", describe(op)));
     head.appendChild(result);
   }
@@ -607,13 +679,16 @@ function buildPanel(op) {
 
 function render() {
   renderList();
-  $("queue-count").textContent = ops.length;
-  var activeCount = ops.filter(function (op) { return canApprove(op) || op.status === "executing"; }).length;
-  $("active-total").textContent = String(activeCount).padStart(2, "0");
-  $("active-count").textContent = activeCount;
-  $("success-total").textContent = String(ops.filter(function (op) { return op.status === "succeeded"; }).length).padStart(2, "0");
-  $("attention-total").textContent = String(ops.filter(function (op) { return op.status === "failed" || op.status === "indeterminate"; }).length).padStart(2, "0");
-  document.querySelectorAll(".filter").forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.filter === filter)); });
+  $("queue-count").textContent = queueTotal;
+  $("active-total").textContent = String(totals.active).padStart(2, "0");
+  $("active-count").textContent = totals.active;
+  $("success-total").textContent = String(totals.succeeded).padStart(2, "0");
+  $("attention-total").textContent = String(totals.attention).padStart(2, "0");
+  document.querySelectorAll("[data-filter]").forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.filter === filter)); });
+  $("history-pages").hidden = filter === "active" || historyState.pages <= 1;
+  $("history-position").textContent = "历史 " + historyState.page + " / " + historyState.pages + " 页";
+  $("history-prev").disabled = expired || historyState.page <= 1;
+  $("history-next").disabled = expired || historyState.page >= historyState.pages;
   var op = ops.find(function (item) { return item.id === selected; });
   document.querySelectorAll(".tab").forEach(function (button) {
     var on = button.dataset.tab === tab;
@@ -623,12 +698,15 @@ function render() {
   });
   $("panel").setAttribute("aria-labelledby", "tab-" + tab);
   if (!op) {
-    $("detail-head").replaceChildren(el("p", "muted", ops.length ? "选择左侧的一条操作查看正文。" : "队列是空的。"));
+    $("detail-head").replaceChildren(el("p", "muted", queueTotal ? "选择左侧的一条操作查看正文。" : "队列是空的。"));
     $("panel").replaceChildren();
     headKey = "";
     panelKey = "";
   } else {
-    var key = JSON.stringify([op.id, op.status, heading(op), op.summary, describe(op), op.source, op.collection, op.attachments, locations[op.id], locErrors[op.id]]);
+    var key = JSON.stringify([
+      op.id, op.status, heading(op), op.summary, op.version_message, describe(op),
+      op.source, op.collection, op.attachments, locations[op.id], locErrors[op.id]
+    ]);
     if (key !== headKey) {
       headKey = key;
       renderHead(op);
@@ -640,7 +718,16 @@ function render() {
     }
   }
   $("act-approve").disabled = locked() || !canApprove(op);
-  $("act-reject").disabled = locked() || !op || op.status !== "pending";
+  var canReject = op && op.status === "pending";
+  $("act-reject").disabled = locked() || !canReject;
+  var reasonInput = $("rejection-reason");
+  var reasonFor = canReject ? op.id : "";
+  if (reasonInput.dataset.operationId !== reasonFor) {
+    reasonInput.dataset.operationId = reasonFor;
+    reasonInput.value = "";
+  }
+  reasonInput.hidden = !canReject;
+  reasonInput.disabled = locked();
   $("act-approve").textContent = busy ? "处理中…" : op && op.status === "approved" ? "写入" : "批准并写入";
   var footerStates = {
     pending: "批准后立即写入 Confluence", approved: "已批准，等待写入", executing: "写入中，请等待结果",
@@ -654,33 +741,44 @@ function render() {
   else $("result-link").removeAttribute("href");
 }
 
-function refresh() {
-  if (refreshing) return refreshing;
-  refreshing = api(STATE_PATH).then(function (data) {
-    if (expired) return;
+function statePath() {
+  if (filter === "active") return STATE_PATH;
+  return STATE_PATH + "?" + new URLSearchParams({
+    history: filter, page: historyPage, space: $("space-filter").value, q: $("search").value.trim()
+  });
+}
+
+function refresh(force) {
+  var path = statePath();
+  if (!force && refreshing && refreshingPath === path) return refreshing;
+  refreshingPath = path;
+  var request = api(path).then(function (data) {
+    // A slow response from a previous filter must not replace the current list.
+    if (expired || request !== refreshing || path !== statePath()) return;
+    var changedView = path !== loadedPath;
     ops = data.operations;
+    totals = data.totals;
+    queueTotal = data.total;
+    spaces = data.spaces;
+    historyState = data.history;
+    if (filter !== "active") historyPage = historyState.page;
+    loadedPath = statePath();
     checked.forEach(function (id) {
       if (!canApprove(ops.find(function (op) { return op.id === id; }))) checked.delete(id);
     });
     renderSpaces();
-    if (!ops.some(function (op) { return op.id === selected; })) {
-      var visible = visibleOps();
-      selected = visible.length ? visible[0].id : null;
-      if (selected) loadLocation(selected);
-    }
     $("sync-state").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false });
-    $("sync-state").className = "";
-    $("sync-state").removeAttribute("title");
-    render();
+    setSessionState("valid", "会话有效");
+    if (changedView || !ops.some(function (op) { return op.id === selected; })) selectVisible();
+    else render();
   }, function (err) {
-    if (!expired) {
-      $("sync-state").textContent = "刷新失败，5 秒后重试";
-      $("sync-state").className = "error";
-      $("sync-state").title = err.message;
+    if (!expired && request === refreshing && path === statePath()) {
+      setSessionState("unavailable", "刷新失败", "5 秒后重试 · " + err.message);
     }
     throw err;
-  }).finally(function () { refreshing = null; });
-  return refreshing;
+  }).finally(function () { if (request === refreshing) refreshing = null; });
+  refreshing = request;
+  return request;
 }
 
 function loadLocation(id) {
@@ -703,13 +801,20 @@ function select(id) {
   render();
 }
 
-function changeFilter() {
+function selectVisible() {
   var visible = visibleOps();
+  $("list").scrollTop = 0;
   if (!visible.some(function (op) { return op.id === selected; })) select(visible.length ? visible[0].id : null);
   else render();
 }
 
-function confirmAction(kind, ids) {
+function changeFilter() {
+  historyPage = 1;
+  selectVisible();
+  if (statePath() !== loadedPath) refresh().catch(function () {});
+}
+
+function confirmAction(kind, ids, reason) {
   if (locked()) return;
   confirmIds = ids.filter(function (id) {
     var op = ops.find(function (item) { return item.id === id; });
@@ -725,6 +830,8 @@ function confirmAction(kind, ids) {
   $("confirm-title").textContent = approve ? "确认批准并写入" : "确认拒绝操作";
   $("confirm-description").textContent = "本次将" + (approve ? "批准并写入 " : "拒绝 ") + confirmIds.length + " 条操作，请核对范围。";
   $("confirm-note").textContent = approve ? "确认后立即写入 Confluence，执行结果将在页面中显示。" : "确认后将这些待审批操作标记为已拒绝。";
+  $("confirm-rejection").hidden = approve;
+  $("confirm-reason").value = reason || "";
   $("confirm-submit").textContent = approve ? "确认写入" : "确认拒绝";
   $("confirm-submit").className = approve ? "primary" : "danger";
   $("confirm-items").replaceChildren();
@@ -735,14 +842,24 @@ function confirmAction(kind, ids) {
   $("confirm-dialog").showModal();
 }
 
-function act(kind, ids) {
+function act(kind, ids, reason) {
   if (locked()) return;
+  var approve = kind === "approve";
+  var progress = $("approval-progress");
   busy = true;
-  busyLabel = "正在" + (kind === "approve" ? "写入 " : "拒绝 ") + ids.length + " 条操作…";
-  notice(busyLabel, false);
+  busyLabel = "正在" + (approve ? "写入 " : "拒绝 ") + ids.length + " 条操作…";
+  notice("", false);
   render();
-  api(kind === "approve" ? APPROVE_PATH : REJECT_PATH, { ids: ids }).then(function (out) {
-    if (kind === "approve") {
+  if (approve) {
+    $("approval-progress-message").textContent = busyLabel;
+    progress.showModal();
+  }
+  var body = { ids: ids };
+  if (!approve && reason) body.reason = reason;
+  return api(approve ? APPROVE_PATH : REJECT_PATH, body).finally(function () {
+    if (progress.open) progress.close();
+  }).then(function (out) {
+    if (approve) {
       var executed = out.executed || [];
       executed.forEach(function (result) {
         var op = ops.find(function (item) { return item.id === result.operation_id; });
@@ -755,28 +872,36 @@ function act(kind, ids) {
       if ((out.skipped || []).length) parts.push(out.skipped.length + " 条已跳过，请核对后继续审批");
       notice(parts.join("，"), failed > 0 || unknown > 0 || (out.skipped || []).length > 0);
     } else {
-      (out.rejected || []).forEach(function (id) {
+      var rejected = out.rejected || [];
+      rejected.forEach(function (id) {
         var op = ops.find(function (item) { return item.id === id; });
-        if (op) op.status = "rejected";
+        if (op) Object.assign(op, { status: "rejected", result: reason ? { rejection_reason: reason } : null });
       });
-      notice("已拒绝 " + (out.rejected || []).length + " 条", false);
+      var unchanged = ids.length - rejected.length;
+      notice("已拒绝 " + rejected.length + " 条" + (unchanged ? "，" + unchanged + " 条状态已变化" : ""), false);
     }
     checked.forEach(function (id) {
       if (!canApprove(ops.find(function (op) { return op.id === id; }))) checked.delete(id);
     });
   }).catch(function (err) {
     if (err.message !== "forbidden") notice("请求失败，请核对队列中的执行状态。" + err.message, true);
-  }).then(function () {
+  }).finally(function () {
     busy = false;
     render();
-    if (!expired) return refresh().catch(function () {});
+    if (!expired) return refresh(true).catch(function () {});
   });
 }
 
 $("search").addEventListener("input", changeFilter);
 $("space-filter").addEventListener("change", changeFilter);
-document.querySelectorAll(".filter").forEach(function (button) {
+document.querySelectorAll("[data-filter]").forEach(function (button) {
   button.addEventListener("click", function () { filter = button.dataset.filter; changeFilter(); });
+});
+["history-prev", "history-next"].forEach(function (id, index) {
+  $(id).addEventListener("click", function () {
+    historyPage = historyState.page + (index ? 1 : -1);
+    refresh().catch(function () {});
+  });
 });
 $("check-all").addEventListener("change", function () {
   visibleOps().filter(canApprove).forEach(function (op) {
@@ -788,12 +913,13 @@ $("check-all").addEventListener("change", function () {
 $("approve-selected").addEventListener("click", function () { confirmAction("approve", checkedIds("approve")); });
 $("reject-selected").addEventListener("click", function () { confirmAction("reject", checkedIds("reject")); });
 $("act-approve").addEventListener("click", function () { if (selected) confirmAction("approve", [selected]); });
-$("act-reject").addEventListener("click", function () { if (selected) confirmAction("reject", [selected]); });
+$("act-reject").addEventListener("click", function () { if (selected) confirmAction("reject", [selected], $("rejection-reason").value); });
 $("confirm-cancel").addEventListener("click", function () { $("confirm-dialog").close(); });
 $("confirm-submit").addEventListener("click", function () {
   var ids = confirmIds.slice();
+  var reason = $("confirm-reason").value.trim();
   $("confirm-dialog").close();
-  act(confirmKind, ids);
+  act(confirmKind, ids, reason);
 });
 
 var tabs = Array.from(document.querySelectorAll(".tab"));
@@ -812,8 +938,7 @@ tabs.forEach(function (button, index) {
   });
 });
 
-// Split between queue and document. Pointer drag, arrow keys, Home/End on the separator, and the
-// header buttons all go through setSplit, which clamps to the real pixel bounds.
+// Pointer and keyboard resizing share the queue and detail width limits in applySplit.
 function readSplit() {
   var match = /(?:^|;\s*)cmr_split=(0\.\d{1,3})(?:;|$)/.exec(document.cookie);
   var value = match ? parseFloat(match[1]) : NaN;
@@ -873,9 +998,6 @@ divider.addEventListener("keydown", function (e) {
   else return;
   e.preventDefault();
 });
-$("split-narrow").addEventListener("click", function () { setSplit(split - 0.05); });
-$("split-wide").addEventListener("click", function () { setSplit(split + 0.05); });
-$("split-reset").addEventListener("click", function () { setSplit(DEFAULT_SPLIT); });
 window.addEventListener("resize", applySplit);
 window.matchMedia(NARROW).addEventListener("change", applySplit);
 applySplit();

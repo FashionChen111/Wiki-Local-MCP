@@ -1,12 +1,46 @@
-"""Send approved Confluence writes, at most once each."""
+"""Execute each approved Confluence write at most once."""
 
 from __future__ import annotations
 
+from time import sleep
 from typing import Any
 
-from . import queue
-from .client import ConfluenceAPIError, ConfluenceConfigurationError
+from . import queue, settings_file
+from .client import ConfluenceAPIError, ConfluenceConfigurationError, ConfluenceConnectionError
+from .images import ImageAttachment
 from .writes import audit_write, ensure_write_allowed
+
+
+def _attachment_upload_retries() -> int:
+    key = settings_file.ATTACHMENT_UPLOAD_RETRIES
+    raw = settings_file.get_settings().get(key, "0").strip() or "0"
+    try:
+        retries = int(raw)
+        if retries >= 0:
+            return retries
+    except ValueError:
+        pass
+    raise ConfluenceConfigurationError(f"{key} in .env must be a non-negative integer.")
+
+
+def _upload_attachment(
+    client: Any, op_id: str, result: dict[str, Any], image: ImageAttachment, retries: int,
+) -> None:
+    result["uploading_attachment"] = image.filename
+    for attempt in range(retries + 1):
+        if attempt:
+            result.setdefault("attachment_upload_retries", {})[image.filename] = attempt
+        queue.record_progress(op_id, result)
+        try:
+            client.upload_attachment(result["id"], image.filename, image.data, image.content_type)
+        except ConfluenceConnectionError:
+            if attempt == retries:
+                raise
+            sleep(0.5)
+        else:
+            result["uploaded_attachments"].append(image.filename)
+            del result["uploading_attachment"]
+            return
 
 
 def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
@@ -23,6 +57,7 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
             client.move_page(op["page_id"], payload["position"], payload["target_id"])
             result = {"id": op["page_id"], "version": None, "url": None}
         elif attachments:
+            retries = _attachment_upload_retries()
             payload = op["payload"]
             if op["kind"] == "create":
                 # A page id is required before its attachments can be uploaded.
@@ -55,11 +90,7 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
                 if client.get_attachment(result["id"], image.filename) is not None:
                     result["reused_attachments"].append(image.filename)
                 else:
-                    result["uploading_attachment"] = image.filename
-                    queue.record_progress(op["id"], result)
-                    client.upload_attachment(result["id"], image.filename, image.data, image.content_type)
-                    result["uploaded_attachments"].append(image.filename)
-                    del result["uploading_attachment"]
+                    _upload_attachment(client, op["id"], result, image, retries)
                 queue.record_progress(op["id"], result)
             response = client.update_page(result["id"], payload)
             result.update(
@@ -83,9 +114,14 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     except ConfluenceConfigurationError as exc:
         status, error = "failed", str(exc)
     except ConfluenceAPIError as exc:
-        # A status code means Confluence answered and rejected; no status means
-        # the outcome is unknown, so the operation must never be retried.
-        status = "failed" if exc.status_code is not None else "indeterminate"
+        code = exc.status_code
+        failed = code is not None
+        if result and "uploading_attachment" in result:
+            # A gateway error can arrive after an upload has reached Confluence.
+            failed = isinstance(exc, ConfluenceConnectionError) or (code is not None and 400 <= code < 500)
+            if failed:
+                result["failed_attachment"] = result.pop("uploading_attachment")
+        status = "failed" if failed else "indeterminate"
         error = str(exc)
     except Exception as exc:
         status, error = "indeterminate", str(exc)

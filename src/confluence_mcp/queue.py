@@ -202,15 +202,16 @@ def list_ops(statuses: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
         return [_row(row) for row in conn.execute(query, params)]
 
 
-def _transition(op_ids: list[str], status: str) -> list[str]:
+def _transition(op_ids: list[str], status: str, *, result: dict[str, Any] | None = None) -> list[str]:
     changed = []
     now = _now()
+    stored_result = json.dumps(result) if result is not None else None
     with closing(_connect()) as conn:
         for op_id in op_ids:
             cursor = conn.execute(
-                "UPDATE operations SET status = ?, updated_at = ? "
+                "UPDATE operations SET status = ?, updated_at = ?, result = ? "
                 "WHERE id = ? AND status = 'pending'",
-                (status, now, op_id),
+                (status, now, stored_result, op_id),
             )
             if cursor.rowcount:
                 changed.append(op_id)
@@ -222,9 +223,9 @@ def approve(op_ids: list[str]) -> list[str]:
     return _transition(op_ids, "approved")
 
 
-def reject(op_ids: list[str]) -> list[str]:
-    """Reject pending operations and return the ids that changed."""
-    return _transition(op_ids, "rejected")
+def reject(op_ids: list[str], *, reason: str = "") -> list[str]:
+    """Reject pending operations with an optional reason and return the ids that changed."""
+    return _transition(op_ids, "rejected", result={"rejection_reason": reason} if reason else None)
 
 
 def get_op(op_id: str) -> dict[str, Any] | None:

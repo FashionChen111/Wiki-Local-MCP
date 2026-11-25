@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 PROJECT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+ATTACHMENT_UPLOAD_RETRIES = "CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"
 _COMMENT = re.compile(r"\s#")
 _SETTING_KEYS = {
     "ATLASSIAN_CONFLUENCE_URL",
@@ -14,6 +15,7 @@ _SETTING_KEYS = {
     "ATLASSIAN_CONFLUENCE_CA_BUNDLE",
     "CONFLUENCE_ENABLE_WRITES",
     "CONFLUENCE_WRITE_SPACES",
+    ATTACHMENT_UPLOAD_RETRIES,
     "ALLOW_AGENT_OPEN_REVIEW_UI",
 }
 
