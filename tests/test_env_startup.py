@@ -28,15 +28,17 @@ def project_process(tmp_path):
 
         other_cwd = run_dir / "other"
         other_cwd.mkdir()
-        (other_cwd / ".env").write_text("CONFLUENCE_ENABLE_WRITES=true\n", encoding="utf-8")
+        other_settings = "CONFLUENCE_ENABLE_WRITES=true\nALLOW_AGENT_OPEN_REVIEW_UI=true\n"
+        (other_cwd / ".env").write_text(other_settings, encoding="utf-8")
         legacy_file = run_dir / "legacy.env"
-        legacy_file.write_text("CONFLUENCE_ENABLE_WRITES=true\n", encoding="utf-8")
+        legacy_file.write_text(other_settings, encoding="utf-8")
 
         env = os.environ.copy()
         env.pop("ATLASSIAN_CONFLUENCE_PAT", None)
         env.update({
             "CONFLUENCE_MCP_ENV_FILE": str(legacy_file),
             "CONFLUENCE_ENABLE_WRITES": "true",
+            "ALLOW_AGENT_OPEN_REVIEW_UI": "true",
             "PYTHONPATH": str(source_root),
             "PYTHONIOENCODING": "utf-8",
         })
@@ -63,20 +65,36 @@ def project_process(tmp_path):
     return run
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_startup_uses_project_env_from_unrelated_cwd(project_process, enabled):
-    result = project_process(f"CONFLUENCE_ENABLE_WRITES={str(enabled).lower()}\n")
+@pytest.mark.parametrize(
+    "writes_enabled, open_setting, open_enabled",
+    [
+        (False, "true", False),
+        (True, None, False),
+        (True, "False", False),
+        (True, "invalid", False),
+        (True, "True", True),
+    ],
+)
+def test_startup_uses_project_env_from_unrelated_cwd(
+    project_process, writes_enabled, open_setting, open_enabled
+):
+    config = f"CONFLUENCE_ENABLE_WRITES={str(writes_enabled).lower()}\n"
+    if open_setting is not None:
+        config += f"ALLOW_AGENT_OPEN_REVIEW_UI={open_setting}\n"
+    result = project_process(config)
     assert result.returncode == 0, result.stderr
     actual = json.loads(result.stdout)
-    assert ("create_page" in actual["tools"]) is enabled
-    assert actual["enabled_after_change"] is enabled
+    assert ("create_page" in actual["tools"]) is writes_enabled
+    assert ("open_review_page" in actual["tools"]) is open_enabled
+    assert actual["enabled_after_change"] is writes_enabled
 
 
-def test_missing_project_env_cannot_use_inherited_write_flag(project_process):
+def test_missing_project_env_cannot_use_inherited_flags(project_process):
     result = project_process(None)
     assert result.returncode == 0, result.stderr
     actual = json.loads(result.stdout)
     assert "create_page" not in actual["tools"]
+    assert "open_review_page" not in actual["tools"]
     assert actual["enabled_after_change"] is False
 
 

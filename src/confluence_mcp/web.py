@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import secrets
+import subprocess
+import sys
 import threading
 import webbrowser
+from contextlib import ExitStack
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -263,23 +266,78 @@ class _Server(ThreadingHTTPServer):
         self.client = client
         self.token = token
 
+    @property
+    def browser_url(self) -> str:
+        return f"http://127.0.0.1:{self.server_port}/?token={self.token}"
+
 
 def make_server(
     client: Any, token: str, host: str = "127.0.0.1", port: int = 0
-) -> ThreadingHTTPServer:
+) -> _Server:
     return _Server((host, port), client, token)
+
+
+def _open_browser(url: str) -> None:
+    # The launcher receives the approval URL via a private pipe and cannot write to MCP's stdio.
+    try:
+        subprocess.run(
+            [sys.executable, "-I", "-c", (
+                "import sys, webbrowser\n"
+                "sys.exit(0 if webbrowser.open(sys.stdin.read()) else 1)"
+            )],
+            input=url,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise RuntimeError(
+            "Could not open the default browser. Run `confluence-mcp-review web` in an interactive terminal."
+        ) from None
+
+
+class ReviewPage:
+    """Own the approval listener used by one MCP process."""
+
+    def __init__(self) -> None:
+        self._server: _Server | None = None
+        self._lock = threading.Lock()
+
+    def open(self, client: Any) -> None:
+        with self._lock:
+            if self._server is not None:
+                _open_browser(self._server.browser_url)
+                return
+            with ExitStack() as startup:
+                try:
+                    server = startup.enter_context(make_server(client, secrets.token_urlsafe(32)))
+                except OSError:
+                    raise RuntimeError(
+                        "Could not start the approval page on 127.0.0.1. Check the MCP host's localhost permissions."
+                    ) from None
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                startup.callback(server.shutdown)
+                _open_browser(server.browser_url)
+                self._server = server
+                startup.pop_all()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._server is not None:
+                with self._server:
+                    self._server.shutdown()
+                self._server = None
 
 
 def serve(client: Any) -> None:
     """Run the approval page until Ctrl+C."""
-    token = secrets.token_urlsafe(32)
-    server = make_server(client, token)
-    url = f"http://127.0.0.1:{server.server_address[1]}/?token={token}"
-    print(f"Approval page: {url}\nPress Ctrl+C to stop.", flush=True)
-    webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    with make_server(client, secrets.token_urlsafe(32)) as server:
+        url = server.browser_url
+        print(f"Approval page: {url}\nPress Ctrl+C to stop.", flush=True)
+        webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass

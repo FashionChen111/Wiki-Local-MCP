@@ -1,13 +1,14 @@
-"""MCP server exposing read-only Confluence page tools."""
+"""MCP server for Confluence reads and queued writes."""
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from . import queue
+from . import queue, settings_file, web
 from .client import (
     ConfluenceAPIError,
     get_client,
@@ -20,6 +21,7 @@ from .outline import extract_section, find_headings, replace_section
 from .writes import ensure_write_allowed, writes_enabled
 
 mcp = FastMCP("confluence")
+_review_page = web.ReviewPage()
 OutputFormat = Literal["markdown", "html", "storage"]
 MAX_CHILD_NODES = 200
 PENDING_MESSAGE = (
@@ -907,6 +909,15 @@ def get_execution_log(page: int = 1, page_size: int = 50) -> dict[str, Any]:
     return _paged(finished, _QUEUE_FIELDS + ("result", "error", "updated_at"), page, page_size)
 
 
+async def open_review_page() -> str:
+    """Open the local Confluence approval page in the default browser when the user asks.
+
+    The user still reviews and confirms each write in the browser.
+    """
+    await asyncio.to_thread(_review_page.open, get_client())
+    return "Opened the local Confluence approval page. Review and confirm in your browser."
+
+
 def register_write_tools(server: FastMCP) -> None:
     for tool in (
         create_page,
@@ -924,11 +935,16 @@ def register_write_tools(server: FastMCP) -> None:
 
 if writes_enabled():
     register_write_tools(mcp)
+    if settings_file.get_settings().get("ALLOW_AGENT_OPEN_REVIEW_UI", "").strip().lower() == "true":
+        mcp.tool()(open_review_page)
 
 
 def main() -> None:
     """Run the MCP server over stdio for local MCP hosts."""
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        _review_page.close()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,11 @@
 
 面向本地部署的 Atlassian Confluence Data Center 8.5.15 的 MCP 工具。MCP 进程在本机运行，通过 Confluence REST API 访问当前账号有权查看的内容。默认只注册读工具；写工具需要在项目根目录的 `.env` 中显式开启，且默认 `dry_run`。
 
-当前版本：**V1.1.0**（2026-11-07）
+当前版本：**V1.2.0**（2026-11-25）
+
+V1.2.0 更新：
+
+- 新增默认关闭的 `ALLOW_AGENT_OPEN_REVIEW_UI`。与写工具同时启用后，Agent 可调用 `open_review_page` 在本机打开审批页，由你在浏览器中确认审批。
 
 V1.1.0 更新：
 
@@ -34,7 +38,7 @@ V1.0 首个稳定发布包含：
 
 ### 2. 获取并解压安装包
 
-获取项目提供的跨平台 ZIP；项目发布后也可从 [GitHub Releases](https://github.com/FasenChen/Wiki-Local-MCP/releases) 下载。将 ZIP 解压到计划长期使用的新目录，例如 Windows 的 `D:\Apps\Wiki-Local-MCP` 或 macOS 的 `/Users/yourname/Apps/Wiki-Local-MCP`。如果发布页没有安装包，请向提供方获取。
+从 GitHub Releases 下载跨平台安装 ZIP。将 ZIP 解压到计划长期使用的新目录，例如 Windows 的 `D:\Apps\Wiki-Local-MCP` 或 macOS 的 `/Users/yourname/Apps/Wiki-Local-MCP`。[GitHub Releases](https://github.com/FashionChen111/Wiki-Local-MCP/releases)
 
 解压后的目录应能直接看到 `setup.bat`、`setup.command`、`.env.example` 等文件；下文的“项目目录”均指这些文件所在的目录。不要在压缩包内部直接运行安装脚本。
 
@@ -170,7 +174,7 @@ Agent 找到页面后，可以继续要求“读取其中的页面并总结主�
 
 ## 本地配置文件 `.env`
 
-MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取地址、PAT、CA、写开关和空间白名单。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置。
+MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`）读取连接和审批相关设置。启动目录、`CONFLUENCE_MCP_ENV_FILE` 及同名进程环境变量不会改变这些设置。
 
 | 配置项 | 是否必填 | 用途 |
 | --- | --- | --- |
@@ -179,6 +183,7 @@ MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`
 | `ATLASSIAN_CONFLUENCE_CA_BUNDLE` | 否 | 内部 CA 证书文件路径；TLS 验证保持开启。 |
 | `CONFLUENCE_ENABLE_WRITES` | 否 | 设置为 `true` 后注册写工具；默认关闭。 |
 | `CONFLUENCE_WRITE_SPACES` | 否 | 可写 Space Key，多个用逗号分隔；留空不限制空间。 |
+| `ALLOW_AGENT_OPEN_REVIEW_UI` | 否 | 设置为 `true` 并启用写工具后，注册打开本机审批页的 `open_review_page` 工具。默认 `false`。 |
 
 - 文件不存在时按空配置处理，写操作默认关闭；使用连接功能前仍需配置 URL 和 PAT。行尾注释需要 `#` 前有空格，例如 `CONFLUENCE_WRITE_SPACES=OPS # 已批准`。
 - 每个进程首次使用配置时读取一次；修改 `.env` 后需重启 MCP 和正在运行的审批服务。
@@ -201,8 +206,8 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 流程：
 
 1. 写工具 `dry_run=false` → 入队，返回 `operation_id` 和 `pending` 状态。
-2. 在你自己的终端里审批（需要真实的交互式控制台，Agent 无法替你启动），二选一：
-   - 网页：在仓库根目录运行 `.\.venv\Scripts\confluence-mcp-review.exe web`。在本机 `127.0.0.1` 打开审批页。
+2. 由你在浏览器或交互式终端中确认审批。
+   - 网页：在仓库根目录运行 `.\.venv\Scripts\confluence-mcp-review.exe web`，或在开启[可选入口](#允许-agent-打开本机审批页)后请 Agent 打开。审批页仅在本机 `127.0.0.1` 提供服务。
      - 队列卡片优先显示页面标题，章节更新另列章节名。卡片同时显示动作、空间、状态和基准版本，操作 ID 可在详情中的“来源、附件与操作信息”查看。支持按标题、操作 ID 和章节名搜索，以及按空间筛选。“待处理”包含 `pending`、`approved` 和 `executing`，“需关注”包含 `failed` 和 `indeterminate`。页面概览统计本次列表，列表包含全部未结束操作和最近 20 条已结束记录。用 Tab 聚焦卡片后按 Enter/空格选中。
      - 左右分栏默认约 3:7，可拖动中间的分隔条调整宽度。也可以展开头部的“布局设置”，使用“收窄队列 / 加宽队列 / 恢复默认”按钮（每次 5%）。聚焦分隔条后用左右方向键（每次 2%），Home/End 为最小/最大。可调范围受最小宽度限制（队列 260px，详情 380px），分隔条的 ARIA 数值与之一致。窄窗口（≤760px）改为上下排列，队列与正文预览各自滚动。偏好保存在 `cmr_split` 这个普通偏好 Cookie 中（仅本机 host，非 HttpOnly，值经过校验），因此重启 `web`（端口变化）后仍保留。审批会话 Cookie 不被读取或修改。
      - 来源：如果正文开头的引用块（`> 原文归档：…`、`> 来源：[名称](URL)`）里有这两个明确标签，队列卡片显示归档标签，右侧标出原文 URL 和上级目录，并与 Wiki 目标位置分开。只识别这种开头的标签行，正文中的其他链接一律不当作来源；无效或带凭据的 URL 不显示。队列中没有单独的来源字段。
@@ -226,7 +231,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 
 `indeterminate` 和卡在 `executing` 的操作永远不会自动重试：先到 Confluence
 确认页面是否已被修改，再决定手动处理。批量写入遇到 `indeterminate` 会立即停止，
-其余未处理的操作保持 `pending`。启动 `web` 时，超过 5 分钟仍是 `executing` 的操作会被改成
+其余未处理的操作保持 `pending`。通过 `confluence-mcp-review web` 启动时，超过 5 分钟仍是 `executing` 的操作会被改成
 `indeterminate`（说明写入过程中进程中断过）。更新请求携带入队时绑定的
 `version.number = 当前版本 + 1`；如果页面在审批期间被他人修改，Confluence 返回
 409，该操作变为 `failed`，不会覆盖新版本。
@@ -238,9 +243,22 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 
 - 该队列阻止的是通过 MCP 的提示注入或误写。它不能阻止一个拥有 shell、
   能以同一 OS 用户运行、能附加 PTY 或读取 PAT 的 agent；Jira-local-MCP 也有同样的限制。
-- 审批页的令牌只在该 `web` 进程运行期间有效，只能挡住别的网页和别的机器，挡不住本机上权限相同的恶意进程。
+- 审批页的令牌只在审批服务运行期间有效，只能挡住别的网页和别的机器，挡不住本机上权限相同的恶意进程。
 - SQLite 队列和审计日志不防同一系统用户的篡改，不是不可抵赖的审计，不要把它当作生产级审计记录。
 - 队列数据库有版本号（`PRAGMA user_version`）。本版本会将版本 0/1 的既有队列升级到版本 2，新增图片快照表并保留原有操作与结果。旧版程序会拒绝版本 2 队列，升级时应一并重启 MCP 和审批进程。遇到不认识的版本或表结构会拒绝打开并报出文件路径，请先检查该文件。
+
+### 允许 Agent 打开本机审批页
+
+如果希望让 Agent 直接打开审批页，在项目根目录的 `.env` 设置下面两项，再重启 MCP。
+
+```dotenv
+CONFLUENCE_ENABLE_WRITES=true
+ALLOW_AGENT_OPEN_REVIEW_UI=true
+```
+
+在客户端对 Agent 说「打开 Wiki 审批页」，即可通过 `open_review_page` 在本机默认浏览器打开。重复调用会复用同一 MCP 进程中的审批服务，服务随 MCP 退出关闭。请在页面上核对待审批事项并确认。
+
+将 `ALLOW_AGENT_OPEN_REVIEW_UI` 改为 `false` 或删除该项后，重启 MCP 即可关闭这个工具。手动启动仍可用。该设置只控制 MCP 工具，Agent 的终端执行权限由宿主客户端管理。
 
 ## 能力
 
