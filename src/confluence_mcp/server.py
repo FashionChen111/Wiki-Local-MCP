@@ -27,7 +27,7 @@ MAX_CHILD_NODES = 200
 PENDING_MESSAGE = (
     "Queued, not executed. A person must approve it outside MCP with "
     "`confluence-mcp-review web` or `confluence-mcp-review approve`, which then writes it. "
-    "After review, call get_queued_operations with this operation_id to check the outcome."
+    "After review, call get_queued_operations with this operation_id to check any outcome, including rejection."
 )
 
 
@@ -866,16 +866,16 @@ def _paged(ops: list[dict[str, Any]], fields: tuple[str, ...], page: int, page_s
 
 
 def list_queued_operations(page: int = 1, page_size: int = 50) -> dict[str, Any]:
-    """List queued writes that are pending, approved or executing, without their payloads."""
+    """List pending, approved or executing writes. For finished writes, query their ids or the execution log."""
     _check_paging(page, page_size)
     return _paged(queue.list_ops(_ACTIVE), _QUEUE_FIELDS, page, page_size)
 
 
 def get_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
-    """Read queued writes by id, with their preview, status, result and error.
+    """Read queued writes of any status by id, including rejected writes.
 
-    After human review, this includes any recorded attachment progress or rejection reason.
-    Operations are returned in the order requested.
+    Results include the preview, status, result and error, with any recorded attachment progress
+    or rejection reason. Operations are returned in the order requested.
     """
     _check_ids(operation_ids)
     fields = _QUEUE_FIELDS + ("preview", "result", "error", "updated_at")
@@ -905,11 +905,17 @@ def cancel_queued_operations(operation_ids: list[str]) -> dict[str, Any]:
     return {"cancelled": cancelled, "not_cancelled": not_cancelled}
 
 
-def get_execution_log(page: int = 1, page_size: int = 50) -> dict[str, Any]:
-    """List writes that finished (succeeded, failed or indeterminate), newest first."""
+def get_execution_log(
+    page: int = 1, page_size: int = 50, include_rejected: bool = False,
+) -> dict[str, Any]:
+    """List succeeded, failed and indeterminate writes, newest first.
+
+    Pass include_rejected=True to also list rejected operations and any reasons.
+    """
     _check_paging(page, page_size)
+    statuses = (*_FINISHED, "rejected") if include_rejected else _FINISHED
     finished = sorted(
-        reversed(queue.list_ops(_FINISHED)), key=lambda op: op["updated_at"], reverse=True
+        reversed(queue.list_ops(statuses)), key=lambda op: op["updated_at"], reverse=True
     )
     return _paged(finished, _QUEUE_FIELDS + ("result", "error", "updated_at"), page, page_size)
 

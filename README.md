@@ -228,10 +228,12 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
    `.\.venv\Scripts\confluence-mcp-review.exe`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
    macOS / Linux 将上述命令的 `.\.venv\Scripts\confluence-mcp-review.exe` 替换为 `./.venv/bin/confluence-mcp-review`，参数相同。
    `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
-3. 批准后开始执行，每条操作仅领取一次。Agent 可用 `get_queued_operations(operation_ids=[...])`
-   按入队返回的操作 ID 查看 `status`、`result` 和 `error`，包括已知的页面版本、附件进度和拒绝原因
-   （`result.rejection_reason`）。`get_execution_log` 可分页查看已执行的记录。
-   `list_queued_operations` 查看未结束操作，`cancel_queued_operations` 撤回尚未审批的操作。
+3. 批准后开始执行。流水线应为每行保留入队时返回的 `operation_id`，写后调用
+   `get_queued_operations(operation_ids=[...])` 按原顺序核对任意状态、结果、错误和拒绝原因。
+   `list_queued_operations` 只列出 `pending`、`approved` 和 `executing`。
+   `get_execution_log` 默认只列出 `succeeded`、`failed` 和 `indeterminate`，
+   传 `include_rejected=True` 也会列出 `rejected`，包括已记录的拒绝原因
+   （`result.rejection_reason`）。`cancel_queued_operations` 用于撤回尚未审批的操作。
 
 状态：`pending`（待审批）、`approved`（已批准）、`rejected`（已拒绝）、
 `executing`（正在执行）、`succeeded`（已成功）、`failed`（已确认失败，例如版本冲突 409），

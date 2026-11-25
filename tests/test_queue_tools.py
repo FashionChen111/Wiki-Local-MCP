@@ -63,3 +63,20 @@ def test_execution_log_lists_finished_newest_first():
     out = server.get_execution_log()
     assert [i["id"] for i in out["items"]] == [b, a]
     assert out["items"][0]["error"] == "conflict"
+
+
+def test_execution_log_can_include_rejected():
+    completed, rejected, pending = _op(), _op(), _op()
+    queue.finish(completed, "succeeded")
+    queue.reject([rejected], reason="请补齐图片")
+
+    default = server.get_execution_log()
+    assert [item["id"] for item in default["items"]] == [completed]
+    first = server.get_execution_log(page_size=1, include_rejected=True)
+    second = server.get_execution_log(page=2, page_size=1, include_rejected=True)
+    assert first["total"] == second["total"] == 2
+    assert [item["id"] for item in second["items"]] == [completed]
+    assert [item["id"] for item in first["items"]] == [rejected]
+    assert first["items"][0]["result"]["rejection_reason"] == "请补齐图片"
+    items = server.get_queued_operations([completed, rejected, pending])["operations"]
+    assert [item["status"] for item in items] == ["succeeded", "rejected", "pending"]
