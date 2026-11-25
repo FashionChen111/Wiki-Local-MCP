@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import escape
 from time import sleep
 from typing import Any
@@ -10,6 +11,15 @@ from . import queue, settings_file
 from .client import ConfluenceAPIError, ConfluenceConfigurationError, ConfluenceConnectionError
 from .images import ImageAttachment
 from .writes import audit_write, ensure_write_allowed
+
+
+@dataclass(frozen=True)
+class ResumePlan:
+    page_id: str
+    base_version: int
+    target_version: int
+    missing_attachments: tuple[str, ...]
+    already_applied: bool
 
 
 def attachment_placeholder(operation_id: str) -> str:
@@ -33,8 +43,9 @@ def _upload_attachment(
 ) -> None:
     result["uploading_attachment"] = image.filename
     retries_by_filename = result.setdefault("attachment_upload_retries", {})
+    previous_retries = retries_by_filename.get(image.filename, 0)
     for attempt in range(retries + 1):
-        retries_by_filename[image.filename] = attempt
+        retries_by_filename[image.filename] = previous_retries + attempt
         queue.record_progress(op_id, result)
         try:
             client.upload_attachment(result["id"], image.filename, image.data, image.content_type)
@@ -43,9 +54,163 @@ def _upload_attachment(
                 raise
             sleep(0.5)
         else:
-            result["uploaded_attachments"].append(image.filename)
+            if image.filename in result["reused_attachments"]:
+                result["reused_attachments"].remove(image.filename)
+            if image.filename not in result["uploaded_attachments"]:
+                result["uploaded_attachments"].append(image.filename)
             del result["uploading_attachment"]
             return
+
+
+def _record_reused_attachment(result: dict[str, Any], filename: str) -> None:
+    if filename not in result["uploaded_attachments"] and filename not in result["reused_attachments"]:
+        result["reused_attachments"].append(filename)
+
+
+def _publish_attachment_body(
+    client: Any, op_id: str, payload: dict[str, Any], attachments: list[ImageAttachment],
+    result: dict[str, Any], retries: int,
+) -> None:
+    for image in attachments:
+        if client.get_attachment(result["id"], image.filename) is not None:
+            _record_reused_attachment(result, image.filename)
+        else:
+            try:
+                _upload_attachment(client, op_id, result, image, retries)
+            except ConfluenceAPIError as exc:
+                # A previous upload may become visible between our lookup and the POST.
+                if exc.status_code not in {400, 409}:
+                    raise
+                try:
+                    existing = client.get_attachment(result["id"], image.filename)
+                except ConfluenceAPIError as lookup_error:
+                    raise ConfluenceAPIError(
+                        f"Could not confirm the attachment after HTTP {exc.status_code}: {lookup_error}"
+                    ) from lookup_error
+                if existing is None:
+                    raise
+                del result["uploading_attachment"]
+                _record_reused_attachment(result, image.filename)
+        queue.record_progress(op_id, result)
+    response = client.update_page(result["id"], payload)
+    result.update(
+        version=(response.get("version") or {}).get("number"),
+        url=client.page_url(response),
+    )
+
+
+def _confirmed_write_failure(exc: ConfluenceAPIError) -> bool:
+    return isinstance(exc, ConfluenceConnectionError) or 400 <= (exc.status_code or 0) < 500
+
+
+def _record_failed_attachment(result: dict[str, Any]) -> None:
+    if "uploading_attachment" in result:
+        result["failed_attachment"] = result.pop("uploading_attachment")
+
+
+def _storage_body(content: dict[str, Any]) -> str | None:
+    value = ((content.get("body") or {}).get("storage") or {}).get("value")
+    return value.strip() if isinstance(value, str) else None
+
+
+def inspect_resume(client: Any, op: dict[str, Any]) -> ResumePlan:
+    """Check whether an uncertain attachment write can continue on its known page."""
+    if op["status"] not in {"indeterminate", "executing"} or op["action"] not in {
+        "create_page", "update_page", "update_page_section",
+    }:
+        raise ValueError("Only indeterminate page writes with attachments can be resumed.")
+    if op["error"] == queue.INTERRUPTED_EXECUTION_ERROR:
+        raise ValueError("The earlier process may still be running. Check the interrupted write in Confluence.")
+    ensure_write_allowed(op["space_key"])
+    result = op["result"] or {}
+    page_id = str(result.get("id") or "")
+    base_version = result.get("version")
+    if not page_id.isascii() or not page_id.isdigit() or type(base_version) is not int or base_version < 1:
+        raise ValueError("A confirmed page ID and version are required to resume.")
+    target_version = base_version + 1
+    payload = op["payload"]
+    if op["kind"] == "update" and (
+        op["page_id"] != page_id or op["version_before"] != base_version
+        or (payload.get("version") or {}).get("number") != target_version
+    ):
+        raise ValueError("The recorded page or version no longer matches the queued update.")
+    attachments = queue.attachment_summaries(op["id"])
+    target_body = _storage_body(payload)
+    if not attachments or not target_body or not isinstance(payload.get("title"), str):
+        raise ValueError("The original body and attachment snapshots are required to resume.")
+
+    page = client.get_page(page_id)
+    version = (page.get("version") or {}).get("number")
+    page_body = _storage_body(page)
+    if (str(page.get("id")) != page_id or page.get("type") != "page" or page.get("status") != "current"
+            or (page.get("space") or {}).get("key") != op["space_key"]):
+        raise ConfluenceAPIError("The original page or space changed before recovery.", status_code=409)
+    already_applied = (
+        version == target_version and page_body == target_body and page.get("title") == payload["title"]
+    )
+    if not already_applied and (
+        version != base_version or (op["kind"] == "create" and page_body not in {
+            attachment_placeholder(op["id"]), "<p>Image upload in progress.</p>",
+        })
+    ):
+        raise ConfluenceAPIError("The page version or placeholder changed before recovery.", status_code=409)
+
+    missing = tuple(
+        item["filename"] for item in attachments if client.get_attachment(page_id, item["filename"]) is None
+    )
+    if already_applied and missing:
+        raise ConfluenceAPIError("The published page is missing one or more original attachments.", status_code=409)
+    return ResumePlan(page_id, base_version, target_version, missing, already_applied)
+
+
+def resume_claimed(client: Any, op: dict[str, Any]) -> dict[str, Any]:
+    """Continue a write after the interactive terminal has confirmed and claimed it."""
+    if op["status"] != "executing":
+        raise ValueError("The operation must be claimed before resuming.")
+    result = dict(op["result"] or {})
+    version_before = result.get("version")
+    result["resume_attempts"] = result.get("resume_attempts", 0) + 1
+    result.setdefault("error_before_resume", op["error"])
+    status, error = "succeeded", None
+    publishing = False
+    try:
+        plan = inspect_resume(client, op)
+        attachments = queue.get_attachments(op["id"])
+        missing = set(plan.missing_attachments)
+        for key in ("uploaded_attachments", "reused_attachments"):
+            result[key] = [name for name in result.get(key, []) if name not in missing]
+        result.pop("uploading_attachment", None)
+        result.pop("failed_attachment", None)
+        if plan.already_applied:
+            for image in attachments:
+                _record_reused_attachment(result, image.filename)
+            result["version"] = plan.target_version
+        else:
+            original = op["payload"]
+            payload = {
+                "id": plan.page_id, "type": "page", "title": original["title"], "body": original["body"],
+                "version": {**original.get("version", {}), "number": plan.target_version},
+            }
+            retries = _attachment_upload_retries()
+            publishing = True
+            _publish_attachment_body(client, op["id"], payload, attachments, result, retries)
+    except (ValueError, ConfluenceConfigurationError) as exc:
+        status, error = "failed", str(exc)
+    except ConfluenceAPIError as exc:
+        failed = _confirmed_write_failure(exc) if publishing else 400 <= (exc.status_code or 0) < 500
+        if publishing and failed:
+            _record_failed_attachment(result)
+        status, error = ("failed" if failed else "indeterminate"), str(exc)
+    except Exception as exc:
+        status, error = "indeterminate", str(exc)
+
+    queue.finish(op["id"], status, result=result, error=error)
+    if result.get("id"):
+        audit_write(
+            "resume_operation", page_id=result["id"], space_key=op["space_key"],
+            version_before=version_before, version_after=result.get("version"), result=status,
+        )
+    return {"operation_id": op["id"], "action": op["action"], "status": status, "result": result, "error": error}
 
 
 def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
@@ -93,17 +258,7 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
                 if not isinstance(result["version"], int):
                     raise ConfluenceAPIError("The new page version is unknown; check the created page before continuing.")
                 payload = {**payload, "id": result["id"], "version": {"number": result["version"] + 1}}
-            for image in attachments:
-                if client.get_attachment(result["id"], image.filename) is not None:
-                    result["reused_attachments"].append(image.filename)
-                else:
-                    _upload_attachment(client, op["id"], result, image, retries)
-                queue.record_progress(op["id"], result)
-            response = client.update_page(result["id"], payload)
-            result.update(
-                version=(response.get("version") or {}).get("number"),
-                url=client.page_url(response),
-            )
+            _publish_attachment_body(client, op["id"], payload, attachments, result, retries)
         elif op["kind"] == "update":
             response = client.update_page(op["page_id"], op["payload"])
             result = {
@@ -121,13 +276,12 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     except ConfluenceConfigurationError as exc:
         status, error = "failed", str(exc)
     except ConfluenceAPIError as exc:
-        code = exc.status_code
-        failed = code is not None
+        failed = exc.status_code is not None
         if result and "uploading_attachment" in result:
             # A gateway error can arrive after an upload has reached Confluence.
-            failed = isinstance(exc, ConfluenceConnectionError) or (code is not None and 400 <= code < 500)
+            failed = _confirmed_write_failure(exc)
             if failed:
-                result["failed_attachment"] = result.pop("uploading_attachment")
+                _record_failed_attachment(result)
         status = "failed" if failed else "indeterminate"
         error = str(exc)
     except Exception as exc:

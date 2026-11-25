@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -234,6 +236,129 @@ def test_read_timeout_keeps_the_attachment_unconfirmed(config_values, fake_clien
     assert outcome["result"]["uploading_attachment"] == image.filename
     assert outcome["result"]["attachment_upload_retries"][image.filename] == 0
     assert posts == ["POST"] and fake_client.updated == []
+
+
+def _resume_candidate(fake_client, image_file, *, legacy=False, all_present=False):
+    second = image_file.with_name("diagram.svg")
+    second.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"/>', encoding="utf-8")
+    op_id = server.create_page(
+        "OPS", "Queued guide", f"![guide]({image_file.name}) ![diagram]({second.name})",
+        image_base_dir=str(image_file.parent), dry_run=False,
+    )["operation_id"]
+    first, missing = queue.get_attachments(op_id)
+    placeholder = "<p>Image upload in progress.</p>" if legacy else apply.attachment_placeholder(op_id)
+    fake_client.pages["77"] = {
+        "id": "77", "type": "page", "status": "current", "title": "Queued guide",
+        "space": {"key": "OPS"}, "version": {"number": 1},
+        "body": {"storage": {"value": placeholder}},
+    }
+    fake_client.attachments[("77", first.filename)] = {"id": "111", "title": first.filename}
+    if all_present:
+        fake_client.attachments[("77", missing.filename)] = {"id": "112", "title": missing.filename}
+    fake_client.update_response = {"id": "77", "version": {"number": 2}}
+    queue.finish(op_id, "indeterminate", result={
+        "id": "77", "version": 1, "url": "https://wiki.example.com/pages/77",
+        "page_created": True, "uploaded_attachments": [first.filename],
+        "reused_attachments": [], "uploading_attachment": missing.filename,
+    }, error="original upload timed out")
+    return queue.get_op(op_id), first, missing
+
+
+def _resume_claimed(fake_client, op):
+    return apply.resume_claimed(
+        fake_client, queue.claim_indeterminate(op["id"], expected_updated_at=op["updated_at"]),
+    )
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_resume_reuses_existing_attachments_and_publishes_same_page(fake_client, image_file, legacy):
+    op, first, missing = _resume_candidate(fake_client, image_file, legacy=legacy)
+    image_file.unlink()
+    image_file.with_name("diagram.svg").unlink()
+    plan = apply.inspect_resume(fake_client, op)
+    assert (plan.page_id, plan.base_version, plan.target_version) == ("77", 1, 2)
+    assert plan.missing_attachments == (missing.filename,)
+    result = _resume_claimed(fake_client, op)
+
+    assert result["status"] == "succeeded" and result["operation_id"] == op["id"]
+    assert fake_client.created == []
+    assert fake_client.uploaded == [("77", missing.filename, missing.data, missing.content_type)]
+    [update] = fake_client.updated
+    assert update["version"] == {"number": 2} and update["id"] == "77"
+    assert update["body"] == op["payload"]["body"] and "ancestors" not in update
+    assert result["result"]["uploaded_attachments"] == [first.filename, missing.filename]
+    assert "uploading_attachment" not in result["result"]
+    assert result["result"]["resume_attempts"] == 1
+    assert result["result"]["error_before_resume"] == op["error"]
+    assert json.loads(writes.AUDIT_PATH.read_text(encoding="utf-8"))["action"] == "resume_operation"
+
+
+@pytest.mark.parametrize("reason", ["version", "space"])
+def test_resume_conflict_after_confirmation_does_not_write(fake_client, image_file, reason):
+    op, _, _ = _resume_candidate(fake_client, image_file)
+    apply.inspect_resume(fake_client, op)
+    if reason == "version":
+        fake_client.pages["77"]["version"]["number"] = 2
+    else:
+        fake_client.pages["77"]["space"]["key"] = "QA"
+    result = _resume_claimed(fake_client, op)
+    assert result["status"] == "failed"
+    assert fake_client.created == fake_client.uploaded == fake_client.updated == []
+
+
+def test_resume_detects_body_already_published(fake_client, image_file):
+    op, _, _ = _resume_candidate(fake_client, image_file, all_present=True)
+    fake_client.pages["77"].update({"body": op["payload"]["body"], "version": {"number": 2}})
+    assert apply.inspect_resume(fake_client, op).already_applied is True
+    result = _resume_claimed(fake_client, op)
+    assert (result["status"], result["result"]["version"]) == ("succeeded", 2)
+    assert fake_client.created == fake_client.uploaded == fake_client.updated == []
+
+
+@pytest.mark.parametrize("blocked", ["missing-page", "interrupted"])
+def test_resume_preflight_requires_a_confirmed_page_and_completed_attempt(fake_client, image_file, blocked):
+    op, _, _ = _resume_candidate(fake_client, image_file)
+    if blocked == "missing-page":
+        del op["result"]["id"]
+    else:
+        op["error"] = "Interrupted before the result was known; check Confluence before retrying."
+    with pytest.raises(ValueError, match="page ID|interrupted"):
+        apply.inspect_resume(fake_client, op)
+    assert fake_client.created == fake_client.uploaded == fake_client.updated == []
+
+
+@pytest.mark.parametrize("case", ["visible", "response-timeout", "lookup-timeout"])
+def test_resume_reconciles_late_attachment(fake_client, image_file, case):
+    op, first, late = _resume_candidate(fake_client, image_file)
+    posts = []
+    find_attachment = fake_client.get_attachment
+
+    def lookup(page_id, filename):
+        if posts and case == "lookup-timeout":
+            raise ConfluenceConnectionError("Could not connect for the attachment lookup")
+        return find_attachment(page_id, filename)
+
+    def send(page_id, filename, data, content_type):
+        posts.append(filename)
+        if case != "response-timeout":
+            fake_client.attachments[(page_id, filename)] = {"id": "late", "title": filename, "version": {"number": 1}}
+            raise ConfluenceAPIError("duplicate name", status_code=409)
+        raise ConfluenceAPIError("timed out while awaiting the attachment response")
+
+    fake_client.upload_attachment = send
+    fake_client.get_attachment = lookup
+    result = _resume_claimed(fake_client, op)
+    assert posts == [late.filename]
+    if case == "visible":
+        assert result["status"] == "succeeded"
+        assert result["result"]["reused_attachments"] == [late.filename]
+        assert fake_client.attachments[("77", late.filename)]["version"]["number"] == 1
+        assert len(fake_client.updated) == 1
+    else:
+        assert result["status"] == "indeterminate"
+        assert result["result"]["uploading_attachment"] == late.filename
+        assert result["result"]["uploaded_attachments"] == [first.filename]
+        assert fake_client.updated == []
 
 
 @pytest.mark.parametrize("configured", ["-1", "two"])

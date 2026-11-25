@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from confluence_mcp import queue, review, writes
+from confluence_mcp.images import ImageAttachment
 
 
 class TTYInput(io.StringIO):
@@ -154,3 +155,37 @@ def test_web_sweeps_stale_ops_then_serves(monkeypatch, fake_client):
     monkeypatch.setattr(review.queue, "recover_stale_executing", lambda: served.append("swept"))
     assert review.main(["web"]) == 0
     assert served == ["swept", fake_client]
+
+
+def test_resume_requires_interactive_confirmation(monkeypatch, capsys, fake_client, image_file):
+    image = ImageAttachment("image.png", str(image_file), "image/png", image_file.read_bytes())
+    body = {"storage": {"value": '<p>guide</p><ri:attachment ri:filename="image.png" />'}}
+    op_id = queue.enqueue(
+        "update_page", kind="update", page_id="42", space_key="OPS", version_before=3,
+        summary="Guide", preview="updated guide", attachments=[image],
+        payload={"id": "42", "title": "Guide", "body": body, "version": {"number": 4}},
+    )
+    queue.finish(op_id, "indeterminate", result={"id": "42", "version": 3}, error="read timeout")
+    fake_client.pages["42"] = {
+        "id": "42", "type": "page", "status": "current", "title": "Guide",
+        "space": {"key": "OPS"}, "version": {"number": 3},
+    }
+    fake_client.update_response = {"id": "42", "version": {"number": 4}}
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("yes\n"))
+    assert review.main(["resume", op_id]) == 2
+    monkeypatch.setattr("sys.stdin", TTYInput("no\n"))
+    assert review.main(["resume", op_id]) == 1
+    assert queue.get_op(op_id)["status"] == "indeterminate"
+
+    with monkeypatch.context() as blocked:
+        blocked.setattr(queue, "claim_indeterminate", lambda *_args, **_kwargs: None)
+        blocked.setattr("sys.stdin", TTYInput("yes\n"))
+        assert review.main(["resume", op_id]) == 1
+    assert fake_client.created == fake_client.updated == fake_client.uploaded == []
+
+    monkeypatch.setattr("sys.stdin", TTYInput("yes\n"))
+    assert review.main(["resume", op_id]) == 0
+    assert queue.get_op(op_id)["status"] == "succeeded"
+    assert fake_client.updated[0]["version"] == {"number": 4}
+    assert "image.png" in capsys.readouterr().out

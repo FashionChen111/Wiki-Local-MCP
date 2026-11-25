@@ -45,6 +45,7 @@ def test_attachment_lookup_and_multipart_upload_use_existing_auth_and_context_pa
             assert request.url.params["filename"] == "image.png"
             return httpx.Response(200, json={"results": [{"id": "91", "title": "image.png"}]})
         assert request.method == "POST" and request.headers["x-atlassian-token"] == "no-check"
+        assert request.url.params["allowDuplicated"] == "false"
         assert request.headers["content-type"].startswith("multipart/form-data; boundary=")
         assert b'name="file"; filename="image.png"' in request.content
         assert b"Content-Type: image/png" in request.content

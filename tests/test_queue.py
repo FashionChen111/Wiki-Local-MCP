@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
@@ -67,6 +68,22 @@ def test_claim_approved_ignores_pending():
     a = _enqueue()
     assert queue.claim_approved(a) is None
     assert queue.list_ops()[0]["status"] == "pending"
+
+
+def test_resume_claim_checks_operation_timestamp():
+    op_id = _enqueue()
+    queue.finish(op_id, "indeterminate", result={"id": "42", "version": 3})
+    stamp = queue.get_op(op_id)["updated_at"]
+    assert queue.claim_indeterminate(op_id, expected_updated_at="old-stamp") is None
+
+    def claim(_):
+        return queue.claim_indeterminate(op_id, expected_updated_at=stamp)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        claims = [op for op in workers.map(claim, range(2)) if op is not None]
+    [claimed] = claims
+    assert claimed["status"] == "executing" and claimed["id"] == op_id
+    assert queue.get_op(op_id)["status"] == "executing"
 
 
 def test_get_op_returns_row_or_none():

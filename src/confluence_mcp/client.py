@@ -217,6 +217,7 @@ class ConfluenceClient:
         self._validate_page_id(page_id)
         response = self._request_json(
             "POST", f"content/{page_id}/child/attachment",
+            params={"allowDuplicated": "false"},
             files={"file": (filename, data, content_type)},
             headers={"X-Atlassian-Token": "no-check"},
             timeout=self._attachment_upload_timeout,

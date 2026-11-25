@@ -13,6 +13,7 @@ from typing import Any, Literal
 from .images import ImageAttachment
 
 QUEUE_PATH = Path.home() / ".confluence-mcp" / "queue.sqlite3"
+INTERRUPTED_EXECUTION_ERROR = "Interrupted before the result was known; check Confluence before retrying."
 
 Status = Literal[
     "pending",
@@ -235,7 +236,7 @@ def get_op(op_id: str) -> dict[str, Any] | None:
     return _row(row) if row is not None else None
 
 
-def _claim(select: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+def _claim(select: str, params: tuple[Any, ...], *, status: Status = "approved") -> dict[str, Any] | None:
     row = None
     with closing(_connect()) as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -244,8 +245,8 @@ def _claim(select: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
             if row is not None:
                 conn.execute(
                     "UPDATE operations SET status = 'executing', updated_at = ? "
-                    "WHERE id = ? AND status = 'approved'",
-                    (_now(), row["id"]),
+                    "WHERE id = ? AND status = ?",
+                    (_now(), row["id"], status),
                 )
             conn.execute("COMMIT")
         except Exception:
@@ -262,6 +263,14 @@ def claim_next_approved() -> dict[str, Any] | None:
 def claim_approved(op_id: str) -> dict[str, Any] | None:
     """Atomically move this operation to executing if it is approved, else return None."""
     return _claim("SELECT * FROM operations WHERE id = ? AND status = 'approved'", (op_id,))
+
+
+def claim_indeterminate(op_id: str, *, expected_updated_at: str) -> dict[str, Any] | None:
+    """Claim the same indeterminate record that a user confirmed in the terminal."""
+    return _claim(
+        "SELECT * FROM operations WHERE id = ? AND status = 'indeterminate' AND updated_at = ?",
+        (op_id, expected_updated_at), status="indeterminate",
+    )
 
 
 def recover_stale_executing(
@@ -289,7 +298,7 @@ def recover_stale_executing(
                 [
                     (
                         _now(),
-                        "Interrupted before the result was known; check Confluence before retrying.",
+                        INTERRUPTED_EXECUTION_ERROR,
                         op_id,
                     )
                     for op_id in ids

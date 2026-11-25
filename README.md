@@ -227,7 +227,7 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 
    `.\.venv\Scripts\confluence-mcp-review.exe`（等同 `list`）查看队列；`reject <id>` 可随时拒绝，无需交互式终端。
    macOS / Linux 将上述命令的 `.\.venv\Scripts\confluence-mcp-review.exe` 替换为 `./.venv/bin/confluence-mcp-review`，参数相同。
-   `web` 和 `approve` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
+   `web`、`approve` 和 `resume` 都要求设置 `CONFLUENCE_ENABLE_WRITES=true`。
 3. 批准后开始执行。流水线应为每行保留入队时返回的 `operation_id`，写后调用
    `get_queued_operations(operation_ids=[...])` 按原顺序核对任意状态、结果、错误和拒绝原因。
    `list_queued_operations` 只列出 `pending`、`approved` 和 `executing`。
@@ -245,6 +245,13 @@ macOS / Linux 路径为 `~/.confluence-mcp/queue.sqlite3`。
 `indeterminate`（说明写入过程中进程中断过）。更新请求携带入队时绑定的
 `version.number = 当前版本 + 1`；如果页面在审批期间被他人修改，Confluence 返回
 409，该操作变为 `failed`，不会覆盖新版本。
+
+### 恢复结果不明的含图写入
+
+在交互式终端运行 `confluence-mcp-review resume <id>`，其中 `<id>` 为原操作 ID。命令先读取原页面、版本和同名附件，展示已有与缺失附件。输入 `yes` 后会再次核对，再用原快照继续写入，同一操作 ID 会记录新的结果。
+
+- 适用于已取得页面 ID 和版本的含图新建、整页更新和章节更新。页面已改动时会报告冲突。由执行回收标记为中断的记录需先核对实际结果。
+- 恢复会复用已存在的同名附件。若原目标版本、标题、正文和附件都已确认存在，只记录本地成功。再次发生结果不明时，按操作 ID 查看最新进度。
 
 成功执行的写入会追加到 `%USERPROFILE%\.confluence-mcp\audit.log`
 （macOS / Linux 为 `~/.confluence-mcp/audit.log`；JSON Lines，不含页面正文和 PAT）。

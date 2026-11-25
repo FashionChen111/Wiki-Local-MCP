@@ -7,8 +7,8 @@ import sys
 from typing import Any
 
 from . import queue, web
-from .apply import approve_and_apply
-from .client import get_client
+from .apply import approve_and_apply, inspect_resume, resume_claimed
+from .client import ConfluenceAPIError, ConfluenceConfigurationError, get_client
 from .writes import WRITE_FLAG, writes_enabled
 
 
@@ -96,6 +96,44 @@ def _web() -> int:
     return 0
 
 
+def _resume(op_id: str) -> int:
+    if not _interactive_stdin():
+        print("resume needs an interactive terminal", file=sys.stderr)
+        return 2
+    if not writes_enabled():
+        print(f"resume requires {WRITE_FLAG}=true in the project root .env", file=sys.stderr)
+        return 2
+    op = queue.get_op(op_id)
+    if op is None or op["status"] != "indeterminate":
+        print(f"not indeterminate: {op_id}", file=sys.stderr)
+        return 1
+    try:
+        client = get_client()
+        plan = inspect_resume(client, op)
+    except (ValueError, ConfluenceConfigurationError, ConfluenceAPIError) as exc:
+        print(f"{op_id}: {exc}", file=sys.stderr)
+        return 1
+
+    _show([op])
+    print(f"Page {plan.page_id} · v{plan.base_version} → v{plan.target_version}")
+    missing = set(plan.missing_attachments)
+    existing = [item["filename"] for item in queue.attachment_summaries(op_id) if item["filename"] not in missing]
+    print("Existing attachments: " + (", ".join(existing) or "none"))
+    print("Missing attachments: " + (", ".join(plan.missing_attachments) or "none"))
+    question = "Record the verified result" if plan.already_applied else "Resume this write"
+    print(f"{question}? Type yes: ", end="", flush=True)
+    if sys.stdin.readline().strip() != "yes":
+        print("nothing resumed")
+        return 1
+    claimed = queue.claim_indeterminate(op_id, expected_updated_at=op["updated_at"])
+    if claimed is None:
+        print(f"operation changed during confirmation: {op_id}", file=sys.stderr)
+        return 1
+    outcome = resume_claimed(client, claimed)
+    print(f"{op_id}: {outcome['status']}" + (f" ({outcome['error']})" if outcome["error"] else ""))
+    return 0 if outcome["status"] == "succeeded" else 1
+
+
 def _reject(ids: list[str]) -> int:
     for op_id in queue.reject(ids):
         print(f"rejected: {op_id}")
@@ -115,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("web", help="open the local approval page")
     reject_parser = subparsers.add_parser("reject", help="reject pending operations")
     reject_parser.add_argument("ids", nargs="+")
+    resume_parser = subparsers.add_parser("resume", help="verify and resume an uncertain attachment write")
+    resume_parser.add_argument("id")
 
     args = parser.parse_args(argv)
     if args.command == "approve":
@@ -123,4 +163,6 @@ def main(argv: list[str] | None = None) -> int:
         return _reject(args.ids)
     if args.command == "web":
         return _web()
+    if args.command == "resume":
+        return _resume(args.id)
     return _list(getattr(args, "all", False))
