@@ -1,7 +1,8 @@
+import httpx
 import pytest
 
 from confluence_mcp import apply, queue, server, writes
-from confluence_mcp.client import ConfluenceAPIError, ConfluenceConnectionError
+from confluence_mcp.client import ConfluenceAPIError, ConfluenceClient, ConfluenceConnectionError, ConfluenceSettings
 
 
 @pytest.fixture(autouse=True)
@@ -204,6 +205,31 @@ def test_unconfirmed_upload_is_never_retried(status_code, config_values, fake_cl
     result = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
     assert result["status"] == "indeterminate" and fake_client.updated == []
     assert attempts == [result["result"]["uploading_attachment"]]
+
+
+def test_read_timeout_keeps_the_attachment_unconfirmed(config_values, fake_client, image_file, monkeypatch):
+    config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = "2"
+    op_id = _page_image("create", image_file)["operation_id"]
+    [image] = queue.get_attachments(op_id)
+    posts = []
+
+    def delayed_response(request):
+        posts.append(request.method)
+        assert image.data in request.content
+        raise httpx.ReadTimeout("timeout awaiting response", request=request)
+
+    client = ConfluenceClient(ConfluenceSettings("https://wiki.example", "example-token", None))
+    client.close()
+    with httpx.Client(base_url="https://wiki.example/rest/api/", transport=httpx.MockTransport(delayed_response)) as transport:
+        client._client = transport
+        monkeypatch.setattr(fake_client, "upload_attachment", client.upload_attachment)
+        outcome = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
+
+    assert outcome["status"] == "indeterminate"
+    assert "waiting for the Confluence response" in outcome["error"]
+    assert outcome["result"]["uploading_attachment"] == image.filename
+    assert outcome["result"]["attachment_upload_retries"][image.filename] == 0
+    assert posts == ["POST"] and fake_client.updated == []
 
 
 @pytest.mark.parametrize("configured", ["-1", "two"])

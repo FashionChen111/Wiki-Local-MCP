@@ -72,3 +72,14 @@ def test_missing_file_pat_reports_file_without_secrets(config_values, monkeypatc
         ConfluenceSettings.from_environment()
     assert ".env" in str(caught.value)
     assert "process-token" not in str(caught.value)
+
+
+@pytest.mark.parametrize("key", [
+    "CONFLUENCE_REQUEST_TIMEOUT_SECONDS",
+    "CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS",
+])
+@pytest.mark.parametrize("value", ["0", "-1", "invalid", "nan", "inf"])
+def test_invalid_timeout_setting_is_rejected(config_values, key, value):
+    config_values.update(ATLASSIAN_CONFLUENCE_PAT="example-token", **{key: value})
+    with pytest.raises(ConfluenceConfigurationError, match=key):
+        ConfluenceSettings.from_environment()

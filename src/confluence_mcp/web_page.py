@@ -371,7 +371,9 @@ function describe(op) {
     if (result.reused_attachments && result.reused_attachments.length) text += "\n已复用图片 · " + result.reused_attachments.join(", ");
     if (result.failed_attachment) text += "\n上传失败 · " + result.failed_attachment;
     if (result.uploading_attachment) text += "\n上传待核对 · " + result.uploading_attachment;
-    var retries = Object.entries(result.attachment_upload_retries || {});
+    var retries = Object.entries(result.attachment_upload_retries || {}).filter(function (item) {
+      return item[1] > 0 || item[0] === result.failed_attachment || item[0] === result.uploading_attachment;
+    });
     if (retries.length) text += "\n附件重试 · " + retries.map(function (item) { return item[0] + " · " + item[1] + " 次"; }).join(", ");
   }
   return text;

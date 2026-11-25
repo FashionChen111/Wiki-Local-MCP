@@ -183,6 +183,8 @@ MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`
 | `ATLASSIAN_CONFLUENCE_CA_BUNDLE` | 否 | 内部 CA 证书文件路径；TLS 验证保持开启。 |
 | `CONFLUENCE_ENABLE_WRITES` | 否 | 设置为 `true` 后注册写工具；默认关闭。 |
 | `CONFLUENCE_WRITE_SPACES` | 否 | 可写 Space Key，多个用逗号分隔；留空不限制空间。 |
+| `CONFLUENCE_REQUEST_TIMEOUT_SECONDS` | 否 | 读取、发送和连接池等待的单次超时秒数，默认 `30`。建立连接的超时为 10 秒。 |
+| `CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS` | 否 | 上传附件等待响应数据的单次超时秒数，默认 `120`。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES` | 否 | 每个附件上传请求可额外尝试的次数，填写非负整数，默认 `0`。 |
 | `ALLOW_AGENT_OPEN_REVIEW_UI` | 否 | 设置为 `true` 并启用写工具后，注册打开本机审批页的 `open_review_page` 工具。默认 `false`。 |
 
@@ -338,8 +340,9 @@ update_page(
 - 升级前已经入队的操作保留原请求；如需为这些操作补齐图片上传，请撤回后使用新工具重新入队。
 - 正文图片转换为 `<ac:image><ri:attachment ... /></ac:image>`。附件名称为 `mcp-<内容 SHA-256><图片扩展名>`，相同内容去重并复用目标页已有的同名附件，内容变化会生成新名称。既有附件保留在页面中。
 - 新页面先创建占位页取得 ID，再上传图片并发布最终正文，通常完成于版本 2。已有页面在上传前核对版本与空间，上传后仍以入队时绑定的下一版本提交正文，保留 Confluence 的版本冲突保护。
-- 页面与附件通过多次请求写入。中途失败可能保留已创建的占位页或已上传的附件。执行结果记录已知页面 ID，以及已上传（`uploaded_attachments`）、已复用（`reused_attachments`）、确认失败（`failed_attachment`）或需核对（`uploading_attachment`）的文件名。有过重试的文件会在 `attachment_upload_retries` 中列出重试次数。
-- 在项目根目录的 `.env` 设置 `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES=2`，最多可为单个附件额外尝试两次。重试适用于连接失败、连接超时及等待连接池超时。上传请求发送后如果结果不明，应到 Wiki 核对实际状态。
+- 页面与附件通过多次请求写入。中途失败可能保留已创建的占位页或已上传的附件。执行结果记录已知页面 ID，以及已上传（`uploaded_attachments`）、已复用（`reused_attachments`）、确认失败（`failed_attachment`）或需核对（`uploading_attachment`）的文件名。`attachment_upload_retries` 按尝试过的附件记录自动重试次数，包括 0 次。
+- 附件上传默认等待响应数据 120 秒。需要调整时，在项目根目录的 `.env` 设置两个超时参数为正有限秒数，然后重启 MCP 和审批服务。
+- `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES=2` 表示每个附件最多额外尝试两次，默认 0 次。只有发送前的连接失败、连接超时及连接池等待超时会触发重试。发送或读取超时可能已产生写入，操作保留为 `indeterminate`，请到 Wiki 核对实际状态。
 - 读取同页附件图片为 Markdown 时使用 `![说明](attachment:filename)`；更新时会保留此引用。它表示目标页面的已有附件。`content_format="storage"` 的整页更新和 `add_comment` 沿用原来的正文处理方式。
 - 图片需要非空内容及 `image/*` 类型（本地文件按扩展名识别）。`data:` 内嵌图片不在本次支持范围。上传权限、大小限制和最终图片渲染由 Confluence 决定；本地审批预览仅展示本次排队的图片快照，已有附件仍显示占位说明。
 

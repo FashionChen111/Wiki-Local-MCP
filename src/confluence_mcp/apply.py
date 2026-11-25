@@ -27,9 +27,9 @@ def _upload_attachment(
     client: Any, op_id: str, result: dict[str, Any], image: ImageAttachment, retries: int,
 ) -> None:
     result["uploading_attachment"] = image.filename
+    retries_by_filename = result.setdefault("attachment_upload_retries", {})
     for attempt in range(retries + 1):
-        if attempt:
-            result.setdefault("attachment_upload_retries", {})[image.filename] = attempt
+        retries_by_filename[image.filename] = attempt
         queue.record_progress(op_id, result)
         try:
             client.upload_attachment(result["id"], image.filename, image.data, image.content_type)

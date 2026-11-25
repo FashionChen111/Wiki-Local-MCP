@@ -114,8 +114,9 @@ test("expanded result details use the operation status and a matching label", ()
 
   const cases = [
     { status: "succeeded", result: { id: "31", version: 2 }, error: null, open: false },
+    { status: "succeeded", result: { id: "31", attachment_upload_retries: { "sample.png": 0 } }, error: null, open: false },
     { status: "failed", result: { failed_attachment: "sample.png", attachment_upload_retries: { "sample.png": 2 } }, error: "连接超时", open: true },
-    { status: "indeterminate", result: { id: "31", version: 1 }, error: "响应超时", open: true },
+    { status: "indeterminate", result: { id: "31", version: 1, uploading_attachment: "sample.png", attachment_upload_retries: { "sample.png": 0 } }, error: "响应超时", open: true },
     { status: "executing", result: { id: "31", version: 1 }, error: null, open: false },
     { status: "rejected", result: { rejection_reason: "请补充 <测试报告>。" }, error: null, open: true },
   ];
@@ -127,6 +128,8 @@ test("expanded result details use the operation status and a matching label", ()
     assert.equal(details.children[0].textContent, error ? "执行结果与错误详情" : status === "rejected" ? "拒绝详情" : "执行结果");
     assert.match(details.children[1].textContent, new RegExp(state.STATUSES[status]));
     if (status === "failed") assert.match(details.children[1].textContent, /上传失败 · sample\.png\n附件重试 · sample\.png · 2 次/);
+    if (status === "indeterminate") assert.match(details.children[1].textContent, /上传待核对 · sample\.png\n附件重试 · sample\.png · 0 次/);
+    if (status === "succeeded") assert.doesNotMatch(details.children[1].textContent, /重试/);
   }
   assert.equal(head.children.at(-1).children[1].textContent, "状态 · 已拒绝\n拒绝原因 · 请补充 <测试报告>。");
 });

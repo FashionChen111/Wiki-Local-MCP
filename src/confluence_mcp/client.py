@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -33,11 +34,23 @@ class ConfluenceConnectionError(ConfluenceAPIError):
     """A connection could not be obtained before the request was sent."""
 
 
+def _timeout_seconds(settings: dict[str, str], key: str, default: float) -> float:
+    try:
+        seconds = float(settings.get(key, str(default)))
+        if math.isfinite(seconds) and seconds > 0:
+            return seconds
+    except ValueError:
+        pass
+    raise ConfluenceConfigurationError(f"{key} in .env must be a positive, finite number of seconds.")
+
+
 @dataclass(frozen=True)
 class ConfluenceSettings:
     base_url: str
     pat: str = field(repr=False)
     ca_bundle: str | None
+    request_timeout_seconds: float = 30.0
+    attachment_upload_read_timeout_seconds: float = 120.0
 
     @classmethod
     def from_environment(cls) -> "ConfluenceSettings":
@@ -67,7 +80,13 @@ class ConfluenceSettings:
             )
 
         ca_bundle = settings.get("ATLASSIAN_CONFLUENCE_CA_BUNDLE", "").strip() or None
-        return cls(normalized_url, pat, ca_bundle)
+        return cls(
+            normalized_url, pat, ca_bundle,
+            request_timeout_seconds=_timeout_seconds(settings, settings_file.REQUEST_TIMEOUT_SECONDS, 30.0),
+            attachment_upload_read_timeout_seconds=_timeout_seconds(
+                settings, settings_file.ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS, 120.0,
+            ),
+        )
 
 
 class ConfluenceClient:
@@ -75,15 +94,20 @@ class ConfluenceClient:
 
     def __init__(self, settings: ConfluenceSettings) -> None:
         headers = {"Accept": "application/json", "Authorization": f"Bearer {settings.pat}"}
+        timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
 
         self._client = httpx.Client(
             base_url=f"{settings.base_url}/rest/api/",
             headers=headers,
             verify=settings.ca_bundle or True,
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=timeout,
             follow_redirects=False,
         )
         self._base_url = settings.base_url
+        self._attachment_upload_timeout = httpx.Timeout(
+            connect=timeout.connect, read=settings.attachment_upload_read_timeout_seconds,
+            write=timeout.write, pool=timeout.pool,
+        )
 
     def close(self) -> None:
         self._client.close()
@@ -195,6 +219,7 @@ class ConfluenceClient:
             "POST", f"content/{page_id}/child/attachment",
             files={"file": (filename, data, content_type)},
             headers={"X-Atlassian-Token": "no-check"},
+            timeout=self._attachment_upload_timeout,
         )
         for item in response.get("results", []):
             if item.get("title") == filename and item.get("id"):
@@ -262,13 +287,23 @@ class ConfluenceClient:
         json_body: dict[str, Any] | None = None,
         files: dict[str, tuple[str, bytes, str]] | None = None,
         headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> dict[str, Any]:
         try:
             response = self._client.request(
                 method, path, params=params, json=json_body, files=files, headers=headers,
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
-        except (httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
-            raise ConfluenceConnectionError("Timed out waiting for a connection to Confluence.") from exc
+        except httpx.ConnectTimeout as exc:
+            raise ConfluenceConnectionError("Timed out connecting to Confluence before sending the request.") from exc
+        except httpx.PoolTimeout as exc:
+            raise ConfluenceConnectionError(
+                "Timed out waiting for the Confluence connection pool before sending the request."
+            ) from exc
+        except httpx.WriteTimeout as exc:
+            raise ConfluenceAPIError("Timed out sending the Confluence request.") from exc
+        except httpx.ReadTimeout as exc:
+            raise ConfluenceAPIError("Timed out waiting for the Confluence response.") from exc
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
