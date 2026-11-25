@@ -118,17 +118,18 @@ def test_request_timeouts_identify_the_phase(error_type, expected_type, message)
         client.close()
 
 
-@pytest.mark.parametrize("total,upload", [(30.0, 120.0), (45.0, 150.0)])
-def test_upload_uses_its_own_read_timeout(total, upload, tmp_path, monkeypatch):
+@pytest.mark.parametrize("regular,upload_read,upload_write", [(30.0, 120.0, 120.0), (45.0, 150.0, 175.5)])
+def test_upload_uses_its_own_read_and_write_timeouts(regular, upload_read, upload_write, tmp_path, monkeypatch):
     from confluence_mcp import settings_file
 
-    if total != 30.0:
+    if regular != 30.0:
         path = tmp_path / ".env"
         path.write_text(
             "ATLASSIAN_CONFLUENCE_URL=https://wiki.example/confluence\n"
             "ATLASSIAN_CONFLUENCE_PAT=example-token\n"
-            f"CONFLUENCE_REQUEST_TIMEOUT_SECONDS={total}\n"
-            f"CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS={upload}\n",
+            f"CONFLUENCE_REQUEST_TIMEOUT_SECONDS={regular}\n"
+            f"CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS={upload_read}\n"
+            f"CONFLUENCE_ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS={upload_write}\n",
             encoding="utf-8",
         )
         monkeypatch.setattr(settings_file, "get_settings", lambda: settings_file.load_env_file(path))
@@ -148,6 +149,6 @@ def test_upload_uses_its_own_read_timeout(total, upload, tmp_path, monkeypatch):
     finally:
         client.close()
     assert timeouts == [
-        {"connect": 10.0, "read": total, "write": total, "pool": total},
-        {"connect": 10.0, "read": upload, "write": total, "pool": total},
+        {"connect": 10.0, "read": regular, "write": regular, "pool": regular},
+        {"connect": 10.0, "read": upload_read, "write": upload_write, "pool": regular},
     ]

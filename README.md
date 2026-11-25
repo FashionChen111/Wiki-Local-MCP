@@ -190,8 +190,9 @@ MCP 和审批工具只从源码项目根目录的 `.env`（参考 `.env.example`
 | `ATLASSIAN_CONFLUENCE_CA_BUNDLE` | 否 | 内部 CA 证书文件路径；TLS 验证保持开启。 |
 | `CONFLUENCE_ENABLE_WRITES` | 否 | 设置为 `true` 后注册写工具；默认关闭。 |
 | `CONFLUENCE_WRITE_SPACES` | 否 | 可写 Space Key，多个用逗号分隔；留空不限制空间。 |
-| `CONFLUENCE_REQUEST_TIMEOUT_SECONDS` | 否 | 读取、发送和连接池等待的单次超时秒数，默认 `30`。建立连接的超时为 10 秒。 |
+| `CONFLUENCE_REQUEST_TIMEOUT_SECONDS` | 否 | 普通请求的读写超时，以及所有请求的连接池等待超时。默认 30 秒，建立连接的超时为 10 秒。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS` | 否 | 上传附件等待响应数据的单次超时秒数，默认 `120`。 |
+| `CONFLUENCE_ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS` | 否 | 上传附件等待请求数据发送的单次超时秒数，默认 `120`。 |
 | `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES` | 否 | 每个附件上传请求可额外尝试的次数，填写非负整数，默认 `0`。 |
 | `ALLOW_AGENT_OPEN_REVIEW_UI` | 否 | 设置为 `true` 并启用写工具后，注册打开本机审批页的 `open_review_page` 工具。默认 `false`。 |
 
@@ -296,7 +297,11 @@ ALLOW_AGENT_OPEN_REVIEW_UI=true
 - `get_children`：读取子页面树，最多 3 层，单次调用总节点上限 200。
 - `get_page_history`：列出版本历史，或对两个版本做 Markdown diff（默认 4000 字符上限）。8.5.15 实测 `/rest/api/content/{id}/version` 可用；不可用时自动回退到 `/rest/experimental`。
 - `create_page` / `add_comment`（需开启写操作）：从 Markdown 创建页面或评论；默认 `dry_run=true` 只返回预览，`dry_run=false` 入队等待人工审批。
-- `update_page` / `update_page_section`（需开启写操作）：整页或单节更新；必须传 `expected_version`，整页 Markdown 更新默认拒绝含宏页面，单节更新只替换目标章节；`dry_run=false` 入队等待人工审批。
+- `update_page` / `update_page_section`（需开启写操作）分别更新整页和目标章节，必须传 `expected_version`。`dry_run=false` 入队等待人工审批。
+
+  整页 Markdown 更新会按新正文重新生成围栏代码块的 `code` 宏。旧页面含 `info`、`panel`、`toc` 等其他宏时，工具会拦截并列出宏名。需要保留这些宏时，可用 `update_page_section` 单独替换目标章节，或通过 `content_format="storage"` 提交保留原宏的正文。
+
+  `force=True` 跳过整页 Markdown 更新的宏丢失保护。只有确认可以舍弃这些宏时才使用。入队时仍核对 `expected_version`，批准写入时仍受 Confluence 版本冲突保护。使用已发布的 v1.3.0 整页更新含代码块的页面时，`force=True` 可跳过该版本对 `code` 宏的拦截。
 - `create_page` / `update_page` / `update_page_section` 的 Markdown 图片会自动读取或下载，并在审批后上传为页面附件；相对路径需要 `image_base_dir`。详见下方“Markdown 图片”。
 - `move_page`（需开启写操作）：调整页面在页面树中的位置，不修改正文。`position="before"` / `"after"` 把页面放到同级页面 `target_page_id` 的前/后（会随之改到该页面的父页面下）；`position="append"` 把页面移到 `target_page_id` 下作为最后一个子页面。只支持同一空间内移动，不支持移到空间根目录。`dry_run=true` 返回移动前后的同级顺序；`dry_run=false` 入队等待人工审批，批准后向站点的 `/pages/movepage.action` 发送 POST 请求。要排好多个页面，按顺序入队多条移动，批准时按队列顺序执行。
 - `delete_page(page_id, dry_run=true)`（需开启写操作）：预览单页删除。`dry_run=false` 只入队。批准后再次核对页面状态、空间、版本和父页，随后将该页移入空间回收站并记录审计。若存在子页面，Confluence 可能将它们移到上级页面。 [Atlassian 单页删除说明](https://confluence.atlassian.com/conf85/delete-or-restore-a-page-1283359707.html)
@@ -358,8 +363,8 @@ update_page(
 - 正文图片转换为 `<ac:image><ri:attachment ... /></ac:image>`。附件名称为 `mcp-<内容 SHA-256><图片扩展名>`，相同内容去重并复用目标页已有的同名附件，内容变化会生成新名称。既有附件保留在页面中。
 - 新页面先创建占位页取得 ID，正文标明「页面尚未发布」并显示审批操作 ID。附件全部确认后发布最终正文，通常完成于版本 2。已有页面在上传前核对版本与空间，上传后仍以入队时绑定的下一版本提交正文，保留 Confluence 的版本冲突保护。
 - 页面与附件通过多次请求写入。中途失败可能保留已创建的占位页或已上传的附件。执行结果记录已知页面 ID，以及已上传（`uploaded_attachments`）、已复用（`reused_attachments`）、确认失败（`failed_attachment`）或需核对（`uploading_attachment`）的文件名。`attachment_upload_retries` 按尝试过的附件记录自动重试次数，包括 0 次。
-- 附件上传默认等待响应数据 120 秒。需要调整时，在项目根目录的 `.env` 设置两个超时参数为正有限秒数，然后重启 MCP 和审批服务。
-- `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES=2` 表示每个附件最多额外尝试两次，默认 0 次。只有发送前的连接失败、连接超时及连接池等待超时会触发重试。发送或读取超时可能已产生写入，操作保留为 `indeterminate`，请到 Wiki 核对实际状态。
+- 附件上传的发送和读取超时各默认 120 秒。可在项目根目录的 `.env` 中分别配置为正有限秒数，修改后重启 MCP 和审批服务。
+- `CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES=2` 表示每个附件最多额外尝试两次，默认 0 次。只有发送前的连接失败、连接超时及连接池等待超时会触发重试。发送或读取超时可能已产生写入，操作保留为 `indeterminate`。有附件待核对时，错误信息会给出含操作 ID 的 `confluence-mcp-review resume <id>` 命令，用于人工核对和恢复。
 - 读取同页附件图片为 Markdown 时使用 `![说明](attachment:filename)`；更新时会保留此引用。它表示目标页面的已有附件。`content_format="storage"` 的整页更新和 `add_comment` 沿用原来的正文处理方式。
 - 图片需要非空内容及 `image/*` 类型（本地文件按扩展名识别）。`data:` 内嵌图片不在本次支持范围。上传权限、大小限制和最终图片渲染由 Confluence 决定；本地审批预览仅展示本次排队的图片快照，已有附件仍显示占位说明。
 

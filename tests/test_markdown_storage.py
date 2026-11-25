@@ -1,4 +1,4 @@
-from confluence_mcp.markdown_storage import contains_macro, markdown_to_storage
+from confluence_mcp.markdown_storage import markdown_to_storage, unsupported_markdown_macros
 
 
 def test_headings_lists_links_and_emphasis_become_html():
@@ -41,9 +41,14 @@ def test_cdata_terminator_is_split():
     assert "a ]]]]><![CDATA[> b" in storage
 
 
-def test_contains_macro_detects_structured_macros():
-    assert contains_macro('<ac:structured-macro ac:name="toc"/>') is True
-    assert contains_macro("<p>plain</p>") is False
+def test_macro_protection_detects_unsupported_and_unnamed_elements():
+    storage = (
+        '<!-- <![CDATA[<ac:structured-macro ac:name="ignored"/> -->'
+        '<ac:structured-macro ac:name="toc"/><ac:structured-macro ac:name="toc"/>'
+        '<ac:structured-macro ac:schema-version="1"/>'
+    )
+    assert unsupported_markdown_macros(storage) == ["toc", "unnamed macro"]
+    assert unsupported_markdown_macros("<p>plain</p>") == []
 
 
 def test_inline_br_in_table_cell_is_self_closed():

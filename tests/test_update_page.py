@@ -1,6 +1,6 @@
 import pytest
 
-from confluence_mcp import queue, server
+from confluence_mcp import apply, queue, server, writes
 from confluence_mcp.client import ConfluenceAPIError
 
 
@@ -29,20 +29,68 @@ def test_update_page_dry_run_diffs_without_putting(fake_client, monkeypatch, con
     assert fake_client.updated == []
 
 
-def test_update_page_rejects_stale_expected_version(fake_client, monkeypatch, config_values):
+@pytest.mark.parametrize("force", [False, True])
+def test_update_page_rejects_stale_expected_version(fake_client, monkeypatch, config_values, force):
     monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
     fake_client.pages["42"] = page(version=4)
 
     with pytest.raises(ConfluenceAPIError, match="current version is 4"):
-        server.update_page("42", expected_version=3, content="new")
+        server.update_page("42", expected_version=3, content="new", force=force)
 
 
-def test_update_page_rejects_markdown_on_macro_page(fake_client, monkeypatch, config_values):
+def test_update_page_can_publish_a_fenced_code_block_twice(fake_client, monkeypatch, config_values, tmp_path):
     monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
-    fake_client.pages["42"] = page(storage='<ac:structured-macro ac:name="toc"/><p>old</p>')
+    monkeypatch.setattr(writes, "AUDIT_PATH", tmp_path / "audit.log")
+    example = '<ac:structured-macro ac:name="info"/>'
+    fenced_code = f"```text\n{example}\n```"
 
-    with pytest.raises(ConfluenceAPIError, match="update_page_section"):
-        server.update_page("42", expected_version=3, content="new")
+    fake_client.create_response = page(version=1)
+    created = server.create_page("OPS", "Guide", fenced_code, dry_run=False)
+    [creation] = apply.approve_and_apply(fake_client, [created["operation_id"]])["executed"]
+    assert creation["status"] == "succeeded"
+    storage = fake_client.created[0]["body"]["storage"]["value"]
+
+    for version in (1, 2):
+        # Confluence adds metadata to the macro it sends back with the page.
+        returned_storage = storage.replace(
+            '<ac:structured-macro ac:name="code">',
+            "<ac:structured-macro ac:schema-version='1' ac:name='code' ac:macro-id='code-42'>",
+        )
+        fake_client.pages["42"] = page(version, returned_storage)
+        fake_client.update_response = page(version=version + 1)
+        queued = server.update_page(
+            "42", expected_version=version, content=f"Update {version}\n\n{fenced_code}", dry_run=False,
+        )
+        [published] = apply.approve_and_apply(fake_client, [queued["operation_id"]])["executed"]
+        assert (published["status"], published["result"]["version"]) == ("succeeded", version + 1)
+        storage = fake_client.updated[-1]["body"]["storage"]["value"]
+        assert '<ac:structured-macro ac:name="code">' in storage
+        assert '<ac:parameter ac:name="language">text</ac:parameter>' in storage
+        assert f"<![CDATA[{example}\n]]>" in storage
+
+
+@pytest.mark.parametrize(("storage", "blocked_names"), [
+    ('<ac:structured-macro ac:name="info"/><p>old</p>', ("info",)),
+    (
+        '<ac:structured-macro ac:name="code"/>'
+        "<ac:structured-macro ac:schema-version='1' ac:name='panel'><ac:rich-text-body>"
+        '<ac:structured-macro ac:name="jira"/></ac:rich-text-body></ac:structured-macro>',
+        ("jira", "panel"),
+    ),
+])
+def test_update_page_names_macros_that_markdown_cannot_preserve(
+    fake_client, monkeypatch, config_values, storage, blocked_names,
+):
+    monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
+    fake_client.pages["42"] = page(storage=storage)
+
+    with pytest.raises(ConfluenceAPIError, match="update_page_section") as error:
+        server.update_page("42", expected_version=3, content="new", dry_run=False)
+
+    for name in blocked_names:
+        assert name in str(error.value)
+    assert "code" not in str(error.value)
+    assert queue.list_ops() == []
 
 
 def test_update_page_force_allows_markdown_on_macro_page(fake_client, monkeypatch, config_values):
@@ -51,12 +99,12 @@ def test_update_page_force_allows_markdown_on_macro_page(fake_client, monkeypatc
 
     result = server.update_page("42", expected_version=3, content="new", dry_run=True, force=True)
 
-    assert result["dry_run"] is True
+    assert result["dry_run"] is True and result["storage_preview"] == "<p>new</p>"
 
 
 def test_update_page_accepts_storage_format(fake_client, monkeypatch, config_values):
     monkeypatch.setitem(config_values, "CONFLUENCE_ENABLE_WRITES", "true")
-    fake_client.pages["42"] = page()
+    fake_client.pages["42"] = page(storage='<ac:structured-macro ac:name="toc"/><p>old</p>')
 
     result = server.update_page(
         "42",

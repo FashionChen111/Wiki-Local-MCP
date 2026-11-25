@@ -77,6 +77,7 @@ def test_missing_file_pat_reports_file_without_secrets(config_values, monkeypatc
 @pytest.mark.parametrize("key", [
     "CONFLUENCE_REQUEST_TIMEOUT_SECONDS",
     "CONFLUENCE_ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS",
+    "CONFLUENCE_ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS",
 ])
 @pytest.mark.parametrize("value", ["0", "-1", "invalid", "nan", "inf"])
 def test_invalid_timeout_setting_is_rejected(config_values, key, value):

@@ -113,6 +113,17 @@ def _record_failed_attachment(result: dict[str, Any]) -> None:
         result["failed_attachment"] = result.pop("uploading_attachment")
 
 
+def _error_with_resume_hint(
+    op_id: str, status: str, result: dict[str, Any] | None, error: str | None,
+) -> str | None:
+    if status == "indeterminate" and error and result and result.get("uploading_attachment"):
+        return (
+            f"{error} Run 'confluence-mcp-review resume {op_id}' in an interactive terminal "
+            "to check the attachment and resume the write."
+        )
+    return error
+
+
 def _storage_body(content: dict[str, Any]) -> str | None:
     value = ((content.get("body") or {}).get("storage") or {}).get("value")
     return value.strip() if isinstance(value, str) else None
@@ -236,6 +247,7 @@ def resume_claimed(client: Any, op: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         status, error = "indeterminate", str(exc)
 
+    error = _error_with_resume_hint(op["id"], status, result, error)
     queue.finish(op["id"], status, result=result, error=error)
     if result.get("id"):
         audit_write(
@@ -347,6 +359,7 @@ def execute(client: Any, op: dict[str, Any]) -> dict[str, Any]:
             ),
         )
     else:
+        error = _error_with_resume_hint(op["id"], status, result, error)
         queue.finish(op["id"], status, result=result, error=error)
         if result and (result.get("page_created") or result.get("uploaded_attachments")):
             audit_write(

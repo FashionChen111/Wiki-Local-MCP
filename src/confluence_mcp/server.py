@@ -16,7 +16,7 @@ from .client import (
 )
 from .conversion import storage_to_markdown
 from .images import prepare_images
-from .markdown_storage import contains_macro, markdown_to_storage
+from .markdown_storage import markdown_to_storage, unsupported_markdown_macros
 from .outline import extract_section, find_headings, replace_section
 from .writes import ensure_write_allowed, read_trash_target, writes_enabled
 
@@ -403,7 +403,9 @@ def update_page(
 ) -> dict[str, Any]:
     """Replace a page body, guarded by an expected version.
 
-    A dry run previews the change; dry_run=False queues it for human approval.
+    A dry run previews the change. With dry_run=False, it queues for human approval.
+    Markdown can rebuild code blocks. Use force=True to allow a replacement that
+    may drop other macros. The expected_version check still applies with force=True.
     Markdown images are snapshotted for upload on approval. For relative paths,
     set image_base_dir to the absolute directory containing the source Markdown file.
     """
@@ -431,9 +433,10 @@ def update_page(
     old_storage = _storage(page)
     attachments = []
     if content_format == "markdown":
-        if contains_macro(old_storage) and not force:
+        blocked_macros = [] if force else unsupported_markdown_macros(old_storage)
+        if blocked_macros:
             raise ConfluenceAPIError(
-                "This page contains Confluence macros; replacing it with Markdown would drop them. "
+                f"This page contains Confluence macros that Markdown may drop ({', '.join(blocked_macros)}). "
                 'Use update_page_section, content_format="storage", or force=True.'
             )
         new_storage, attachments = prepare_images(markdown_to_storage(content), image_base_dir)

@@ -51,6 +51,7 @@ class ConfluenceSettings:
     ca_bundle: str | None
     request_timeout_seconds: float = 30.0
     attachment_upload_read_timeout_seconds: float = 120.0
+    attachment_upload_write_timeout_seconds: float = 120.0
 
     @classmethod
     def from_environment(cls) -> "ConfluenceSettings":
@@ -86,6 +87,9 @@ class ConfluenceSettings:
             attachment_upload_read_timeout_seconds=_timeout_seconds(
                 settings, settings_file.ATTACHMENT_UPLOAD_READ_TIMEOUT_SECONDS, 120.0,
             ),
+            attachment_upload_write_timeout_seconds=_timeout_seconds(
+                settings, settings_file.ATTACHMENT_UPLOAD_WRITE_TIMEOUT_SECONDS, 120.0,
+            ),
         )
 
 
@@ -106,7 +110,7 @@ class ConfluenceClient:
         self._base_url = settings.base_url
         self._attachment_upload_timeout = httpx.Timeout(
             connect=timeout.connect, read=settings.attachment_upload_read_timeout_seconds,
-            write=timeout.write, pool=timeout.pool,
+            write=settings.attachment_upload_write_timeout_seconds, pool=timeout.pool,
         )
 
     def close(self) -> None:

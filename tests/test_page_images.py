@@ -213,26 +213,34 @@ def test_unconfirmed_upload_is_never_retried(status_code, config_values, fake_cl
     assert attempts == [result["result"]["uploading_attachment"]]
 
 
-def test_read_timeout_keeps_the_attachment_unconfirmed(config_values, fake_client, image_file, monkeypatch):
+@pytest.mark.parametrize("timeout_type,phase", [
+    (httpx.ReadTimeout, "waiting for the Confluence response"),
+    (httpx.WriteTimeout, "sending the Confluence request"),
+])
+def test_upload_timeout_shows_resume_without_replaying(
+    config_values, fake_client, image_file, monkeypatch, timeout_type, phase,
+):
     config_values["CONFLUENCE_ATTACHMENT_UPLOAD_RETRIES"] = "2"
     op_id = _page_image("create", image_file)["operation_id"]
     [image] = queue.get_attachments(op_id)
     posts = []
 
-    def delayed_response(request):
+    def timed_out(request):
         posts.append(request.method)
         assert image.data in request.content
-        raise httpx.ReadTimeout("timeout awaiting response", request=request)
+        raise timeout_type("simulated upload timeout", request=request)
 
     client = ConfluenceClient(ConfluenceSettings("https://wiki.example", "example-token", None))
     client.close()
-    with httpx.Client(base_url="https://wiki.example/rest/api/", transport=httpx.MockTransport(delayed_response)) as transport:
+    with httpx.Client(base_url="https://wiki.example/rest/api/", transport=httpx.MockTransport(timed_out)) as transport:
         client._client = transport
         monkeypatch.setattr(fake_client, "upload_attachment", client.upload_attachment)
         outcome = apply.approve_and_apply(fake_client, [op_id])["executed"][0]
 
     assert outcome["status"] == "indeterminate"
-    assert "waiting for the Confluence response" in outcome["error"]
+    assert phase in outcome["error"]
+    assert f"confluence-mcp-review resume {op_id}" in outcome["error"]
+    assert server.get_queued_operations([op_id])["operations"][0]["error"] == outcome["error"]
     assert outcome["result"]["uploading_attachment"] == image.filename
     assert outcome["result"]["attachment_upload_retries"][image.filename] == 0
     assert posts == ["POST"] and fake_client.updated == []
@@ -382,6 +390,7 @@ def test_resume_can_continue_after_another_pre_send_failure(fake_client, image_f
     fake_client.upload_attachment = connection_failed
     outcome = _resume_claimed(fake_client, op)
     assert outcome["status"] == "indeterminate"
+    assert f"confluence-mcp-review resume {op['id']}" in outcome["error"]
     assert outcome["result"]["uploading_attachment"] == missing.filename
     assert outcome["result"]["error_before_resume"] == op["error"]
     assert fake_client.uploaded == fake_client.updated == []

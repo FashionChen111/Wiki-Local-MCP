@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import re
+from html.parser import HTMLParser
 
 import markdown
 
@@ -11,6 +12,7 @@ _CODE_BLOCK = re.compile(
     r'<pre><code(?: class="language-([^"]+)")?>(.*?)</code>\s*</pre>',
     re.DOTALL,
 )
+_LITERAL_STORAGE = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
 
 
 def markdown_to_storage(markdown_text: str) -> str:
@@ -41,5 +43,25 @@ def _code_macro(match: re.Match[str]) -> str:
     )
 
 
-def contains_macro(storage: str) -> bool:
-    return "<ac:structured-macro" in storage
+class _MacroCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.unsupported: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "ac:structured-macro":
+            return
+        name = dict(attrs).get("ac:name")
+        if name != "code":
+            self.unsupported.add(name or "unnamed macro")
+
+
+def unsupported_markdown_macros(storage: str) -> list[str]:
+    """Name the existing macros the Markdown conversion cannot recreate."""
+    if "<ac:structured-macro" not in storage:
+        return []
+    collector = _MacroCollector()
+    # A code block or comment can contain literal examples of macro markup.
+    collector.feed(_LITERAL_STORAGE.sub("", storage))
+    collector.close()
+    return sorted(collector.unsupported)
