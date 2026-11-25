@@ -302,15 +302,15 @@ class ConfluenceClient:
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
         except httpx.ConnectTimeout as exc:
-            raise ConfluenceConnectionError("Timed out connecting to Confluence before sending the request.") from exc
+            raise ConfluenceConnectionError("The client timed out connecting to Confluence before sending the request.") from exc
         except httpx.PoolTimeout as exc:
             raise ConfluenceConnectionError(
-                "Timed out waiting for the Confluence connection pool before sending the request."
+                "The client timed out waiting for the Confluence connection pool before sending the request."
             ) from exc
         except httpx.WriteTimeout as exc:
-            raise ConfluenceAPIError("Timed out sending the Confluence request.") from exc
+            raise ConfluenceAPIError("The client timed out sending the Confluence request.") from exc
         except httpx.ReadTimeout as exc:
-            raise ConfluenceAPIError("Timed out waiting for the Confluence response.") from exc
+            raise ConfluenceAPIError("The client timed out waiting for the Confluence response.") from exc
         except httpx.TimeoutException as exc:
             raise ConfluenceAPIError("The Confluence request timed out.") from exc
         except httpx.ConnectError as exc:
